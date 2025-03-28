@@ -346,8 +346,12 @@ export class LocalThreadRuntimeCore
     const { parentId } = messageData;
     let { message } = messageData;
 
-    if (message.role !== "assistant")
+    console.log("here is hte add tool res: ", message);
+
+    if (message.role !== "assistant") {
+      console.log("hmmmmm");
       throw new Error("Tried to add tool result to non-assistant message");
+    }
 
     let added = false;
     let found = false;
@@ -361,6 +365,8 @@ export class LocalThreadRuntimeCore
         result,
       };
     });
+
+    console.log("new content: ", newContent);
 
     if (!found)
       throw new Error("Tried to add tool result to non-existing tool call");

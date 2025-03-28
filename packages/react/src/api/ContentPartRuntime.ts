@@ -46,6 +46,7 @@ export class ContentPartRuntimeImpl implements ContentPartRuntime {
   ) {}
 
   protected __internal_bindMethods() {
+    console.log("what is this? ", this);
     this.addToolResult = this.addToolResult.bind(this);
     this.getState = this.getState.bind(this);
     this.subscribe = this.subscribe.bind(this);
@@ -74,12 +75,14 @@ export class ContentPartRuntimeImpl implements ContentPartRuntime {
     const toolName = state.toolName;
     const toolCallId = state.toolCallId;
 
-    this.threadApi.getState().addToolResult({
-      messageId: message.id,
-      toolName,
-      toolCallId,
-      result,
-    });
+    console.log("this still called?");
+
+    // this.threadApi.getState().addToolResult({
+    //   messageId: message.id,
+    //   toolName,
+    //   toolCallId,
+    //   result,
+    // });
   }
 
   public subscribe(callback: () => void) {

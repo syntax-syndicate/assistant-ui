@@ -40,6 +40,7 @@ const COMPLETE_STATUS: ContentPartStatus = Object.freeze({
   type: "complete",
 });
 
+// BUG HERE FOR content part status
 export const toContentPartStatus = (
   message: ThreadMessage,
   partIndex: number,

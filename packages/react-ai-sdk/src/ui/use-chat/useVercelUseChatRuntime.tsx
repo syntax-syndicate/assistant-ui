@@ -36,8 +36,9 @@ export const useVercelUseChatRuntime = (
   const runtime = useExternalStoreRuntime({
     isRunning: chatHelpers.isLoading,
     messages,
-    setMessages: (messages) =>
-      chatHelpers.setMessages(messages.map(getVercelAIMessages).flat()),
+    setMessages: (messages) => {
+      chatHelpers.setMessages(messages.map(getVercelAIMessages).flat());
+    },
     onCancel: async () => chatHelpers.stop(),
     onNew: async (message) => {
       await chatHelpers.append(await toCreateMessage(message));
@@ -58,6 +59,7 @@ export const useVercelUseChatRuntime = (
       await chatHelpers.reload();
     },
     onAddToolResult: ({ toolCallId, result }) => {
+      console.log("this ain't running");
       chatHelpers.addToolResult({ toolCallId, result });
     },
     adapters: {

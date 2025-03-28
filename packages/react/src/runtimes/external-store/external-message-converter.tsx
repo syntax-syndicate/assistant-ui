@@ -290,6 +290,20 @@ export const useExternalMessageConverter = <T extends WeakKey>({
         const isLast = idx === chunks.length - 1;
         const autoStatus = getAutoStatus(isLast, isRunning);
 
+        console.log(
+          "cache: ",
+          "\n\n--- CACHE ---\n\n",
+          JSON.stringify(cache, null, 2),
+          "\n\n--- Message ---\n\n",
+          JSON.stringify(message, null, 2),
+          "\n\n--- Role ---\n\n",
+          cache?.role,
+          "\n\n--- isAutoStatus ---\n\n",
+          isAutoStatus(cache?.status),
+          "\n\n--- auto status, status comparison  ---\n\n",
+          cache?.status === autoStatus,
+        );
+
         if (
           cache &&
           (cache.role !== "assistant" ||
@@ -307,6 +321,7 @@ export const useExternalMessageConverter = <T extends WeakKey>({
           idx.toString(),
           autoStatus,
         );
+
         (newMessage as any)[symbolInnerMessage] = message.inputs;
         return newMessage;
       },
@@ -315,6 +330,11 @@ export const useExternalMessageConverter = <T extends WeakKey>({
     (threadMessages as unknown as { [symbolInnerMessage]: T[] })[
       symbolInnerMessage
     ] = messages;
+
+    console.log(
+      "\n--- thread messages ---\n",
+      JSON.stringify(threadMessages, null, 2),
+    );
 
     return threadMessages;
   }, [state, messages, isRunning, joinStrategy]);
