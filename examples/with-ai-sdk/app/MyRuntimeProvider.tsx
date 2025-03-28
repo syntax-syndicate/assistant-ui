@@ -22,12 +22,7 @@ export function MyRuntimeProvider({
 
   // const runtime = useMemo(() => r, []);
 
-  const c = useChat({ api: "/api/chat" });
-  const chat = useMemo(
-    () => c,
-    [c.messages, c.isLoading, c.addToolResult, c.unstable_joinStrategy],
-  );
-  console.log("chat: ", chat.messages);
+  const chat = useChat({ api: "/api/chat" });
   const runtime = useVercelUseChatRuntime(chat);
 
   return (
