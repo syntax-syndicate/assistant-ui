@@ -6,8 +6,6 @@ import {
   useVercelUseChatRuntime,
 } from "@assistant-ui/react-ai-sdk";
 import { useChat } from "ai/react";
-import { useMemo } from "react";
-// import { useChat } from "ai/react";
 
 export function MyRuntimeProvider({
   children,

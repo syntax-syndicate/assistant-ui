@@ -346,10 +346,7 @@ export class LocalThreadRuntimeCore
     const { parentId } = messageData;
     let { message } = messageData;
 
-    console.log("here is hte add tool res: ", message);
-
     if (message.role !== "assistant") {
-      console.log("hmmmmm");
       throw new Error("Tried to add tool result to non-assistant message");
     }
 
@@ -376,6 +373,14 @@ export class LocalThreadRuntimeCore
       content: newContent,
     };
     this.repository.addOrUpdateMessage(parentId, message);
+
+    console.log(
+      " continue case ",
+      added,
+      shouldContinue(message, this._options.unstable_humanToolNames),
+    );
+
+    this.performRoundtrip(parentId, message, this._lastRunConfig);
 
     if (
       added &&

@@ -104,6 +104,8 @@ const MessageContentPartComponent: FC<MessageContentPartComponentProps> = ({
   const type = part.type;
   if (type === "tool-call") {
     const addResult = (result: any) => contentPartRuntime.addToolResult(result);
+    // const addResult = () => console.log("called?");
+    // contentPartRuntime.addToolResult(null);
     if ("Override" in tools)
       return <tools.Override {...part} addResult={addResult} />;
     const Tool = tools.by_name?.[part.toolName] ?? tools.Fallback;
