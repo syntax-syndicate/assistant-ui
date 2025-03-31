@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useToolUIsStore } from "../context/react/AssistantContext";
 import type { ToolCallContentPartComponent } from "../types/ContentPartComponentTypes";
+import { tool } from "./tool";
 
 export type AssistantToolUIProps<TArgs, TResult> = {
   toolName: string;
@@ -34,7 +35,42 @@ export type AssistantUITool =
 
 export type AssistantUIToolBox = Record<string, AssistantUITool>;
 
-const assistantUIToolBox = (tools: AssistantUIToolBox) => {};
+// type AUIToolBoxRet =
+
+// type AUITBFunc = <TArgs extends AssistantUIToolBox>() => {
+//   [a keyof Tar]:
+// }
+
+// export function auiTB<T extends AssistantUIToolBox>() {
+
+// }
+
+const assistantUIToolBox = (tools: AssistantUIToolBox) => {
+  const toolsWithComponent = Object.entries(tools).reduce(
+    (acc, [key, tool]) => {
+      return {
+        ...acc,
+        [key]: {
+          ...tool,
+          component: () => null,
+        },
+      };
+    },
+    {},
+  );
+
+  return toolsWithComponent;
+};
+
+const test = assistantUIToolBox({
+  weather: {
+    description: "test",
+    parameters: {},
+    server: () => null,
+  },
+});
+
+// test.weather?.description
 
 // const test: AssistantUIToolBox = {
 //   weather: {
