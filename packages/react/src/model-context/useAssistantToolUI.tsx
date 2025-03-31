@@ -34,13 +34,15 @@ export type AssistantUITool =
 
 export type AssistantUIToolBox = Record<string, AssistantUITool>;
 
-const test: AssistantUIToolBox = {
-  weather: {
-    description: "string",
-    parameters: "hi!",
-    client: () => null,
-  },
-};
+const assistantUIToolBox = (tools: AssistantUIToolBox) => {};
+
+// const test: AssistantUIToolBox = {
+//   weather: {
+//     description: "string",
+//     parameters: "hi!",
+//     client: () => null,
+//   },
+// };
 
 // export const auiToolbox
 

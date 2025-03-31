@@ -166,16 +166,20 @@ export function Chat() {
 
 // Record<string, {}> {} descrip, param, server / client,
 
-// assistantUITools.tool.makeAssistantToolUI({
+// assistantUITools.tool.getUI({
 // })
 
-// assistantUITools.tool.makeAssistantToolUI({
-// render: ({}) ( only needs render )
+// assistantUITools.tool.getUI({
+//  render: ({}) ( only needs render )
 // })
+
+// getVercelTool(assistantUITools.weather) || tool(assistantUITools.weather) ?
 
 // getVercelAISDKServerTools -> server side ai-sdk tools.
 
-// all zod based for nw, with standard schema in the future
+// component <AssistantUIToolbox tools={}> to register client side tools like existing makeAssistantTool component thing
+
+// all zod based for now, with standard schema in the future
 
 const WebSearchToolUI = makeAssistantToolUI<WebSearchArgs, WebSearchResult>({
   toolName: "weather",
