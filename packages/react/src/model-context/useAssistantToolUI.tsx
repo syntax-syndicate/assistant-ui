@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useToolUIsStore } from "../context/react/AssistantContext";
 import type { ToolCallContentPartComponent } from "../types/ContentPartComponentTypes";
-import { tool } from "./tool";
+import z from "zod";
 
 export type AssistantToolUIProps<TArgs, TResult> = {
   toolName: string;
@@ -21,19 +21,35 @@ export type AssistantToolUIProps<TArgs, TResult> = {
 //   server: () => void;
 // }
 
-export type AssistantUITool =
-  | {
-      description: string;
-      parameters: unknown;
-      client: ({ args }: { args: AssistantUITool["parameters"] }) => void;
-    }
-  | {
-      description: string;
-      parameters: unknown;
-      server: () => void;
-    };
+// export type AssistantUITool =
+//   | {
+//       description: string;
+//       parameters: z.ZodTypeAny;
+//       client: (args: z.infer<AssistantUITool["parameters"]>) => void;
+//     }
+//   | {
+//       description: string;
+//       parameters: z.ZodTypeAny;
+//       server: (args: z.infer<AssistantUITool["parameters"]>) => void;
+//     };
 
-export type AssistantUIToolBox = Record<string, AssistantUITool>;
+// export type AssistantUITool = {
+//   description: string;
+//   parameters: z.ZodTypeAny;
+//   client: (args: z.infer<AssistantUITool["parameters"]>) => void;
+// };
+
+// const auiTool = {
+//   description: "test",
+//   parameters: z.object({
+//     test: z.string(),
+//   }),
+//   client: (args) => {
+//     console.log("test", args);
+//   },
+// } as AssistantUITool;
+
+// export type AssistantUIToolBox = Record<string, AssistantUITool>;
 
 // type AUIToolBoxRet =
 
@@ -45,30 +61,30 @@ export type AssistantUIToolBox = Record<string, AssistantUITool>;
 
 // }
 
-const assistantUIToolBox = (tools: AssistantUIToolBox) => {
-  const toolsWithComponent = Object.entries(tools).reduce(
-    (acc, [key, tool]) => {
-      return {
-        ...acc,
-        [key]: {
-          ...tool,
-          component: () => null,
-        },
-      };
-    },
-    {},
-  );
+// const assistantUIToolBox = (tools: AssistantUIToolBox) => {
+//   const toolsWithComponent = Object.entries(tools).reduce(
+//     (acc, [key, tool]) => {
+//       return {
+//         ...acc,
+//         [key]: {
+//           ...tool,
+//           component: () => null,
+//         },
+//       };
+//     },
+//     {},
+//   );
 
-  return toolsWithComponent;
-};
+//   return toolsWithComponent;
+// };
 
-const test = assistantUIToolBox({
-  weather: {
-    description: "test",
-    parameters: {},
-    server: () => null,
-  },
-});
+// const test = assistantUIToolBox({
+//   weather: {
+//     description: "test",
+//     parameters: {},
+//     server: () => null,
+//   },
+// });
 
 // test.weather?.description
 
