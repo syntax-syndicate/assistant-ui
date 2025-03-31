@@ -1,5 +1,43 @@
 # @assistant-ui/react
 
+## 0.8.11
+
+### Patch Changes
+
+- Updated dependencies
+  - assistant-stream@0.0.25
+
+## 0.8.10
+
+### Patch Changes
+
+- Updated dependencies
+  - assistant-stream@0.0.24
+
+## 0.8.9
+
+### Patch Changes
+
+- fix: adjust message status even if no message-finish event is emitted
+
+## 0.8.8
+
+### Patch Changes
+
+- 439ae67: fix: properly emit tool-call args-text finish
+- Updated dependencies [439ae67]
+  - assistant-stream@0.0.23
+
+## 0.8.7
+
+### Patch Changes
+
+- ecc6afd: feat: ThreadHistoryAdapter.resume
+- b07603d: feat: assistant-stream rewrite
+- b07603d: feat: use assistant-stream
+- Updated dependencies [b07603d]
+  - assistant-stream@0.0.22
+
 ## 0.8.6
 
 ### Patch Changes

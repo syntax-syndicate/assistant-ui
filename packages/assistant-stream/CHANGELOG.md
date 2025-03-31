@@ -1,5 +1,29 @@
 # assistant-stream
 
+## 0.0.25
+
+### Patch Changes
+
+- fix: frontend tool call enqueue bug
+
+## 0.0.24
+
+### Patch Changes
+
+- chore: bump assistant-stream
+
+## 0.0.23
+
+### Patch Changes
+
+- 439ae67: fix: properly emit tool-call args-text finish
+
+## 0.0.22
+
+### Patch Changes
+
+- b07603d: feat: assistant-stream rewrite
+
 ## 0.0.21
 
 ### Patch Changes
