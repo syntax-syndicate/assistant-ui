@@ -9,8 +9,18 @@ export function MyRuntimeProvider({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const chat = useChat({ api: "/api/chat" });
+  const chat = useChat({
+    api: "/api/chat",
+    onToolCall: ({ toolCall }) => {
+      console.log("test :", toolCall);
+    },
+    onFinish: (msg) => {
+      console.log("msg: ", msg);
+    },
+    maxSteps: 5,
+  });
 
+  console.log("chat: ", chat.messages);
   const runtime = useVercelUseChatRuntime(chat);
 
   return (
