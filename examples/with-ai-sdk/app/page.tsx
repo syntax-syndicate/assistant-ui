@@ -156,7 +156,7 @@ export function Chat() {
     }
   })
 
-  auitoolbox.weather.render({ args, result }) => {
+  auitoolbox.weather.component({ args, result }) => {
     render (
       { typeof result === number }
       <div>{result}</div>
@@ -166,10 +166,10 @@ export function Chat() {
 
 // Record<string, {}> {} descrip, param, server / client,
 
-// assistantUITools.tool.getUI({
+// assistantUITools.tool.component({
 // })
 
-// assistantUITools.tool.getUI({
+// assistantUITools.tool.component({
 //  render: ({}) ( only needs render )
 // })
 
