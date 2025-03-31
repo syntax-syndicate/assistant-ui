@@ -18,10 +18,6 @@ export async function POST(req: Request) {
     }),
   });
 
-  type Test = typeof weahter;
-
-  type Ah = Test[""];
-
   const result = streamText({
     model: openai("gpt-4o"),
     messages,

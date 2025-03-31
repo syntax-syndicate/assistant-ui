@@ -150,8 +150,13 @@ export function Chat() {
 //   .server
 // })
 
-// assistantUITools.tool.makeAssistantToolUI({
+// Record<string, {}> {} descrip, param, server / client,
 
+// assistantUITools.tool.makeAssistantToolUI({
+// })
+
+// assistantUITools.tool.makeAssistantToolUI({
+// render: ({}) ( only needs render )
 // })
 
 // getVercelAISDKServerTools -> server side ai-sdk tools.
