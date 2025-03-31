@@ -10,6 +10,14 @@ export type AssistantToolUIProps<TArgs, TResult> = {
   render: ToolCallContentPartComponent<TArgs, TResult>;
 };
 
+type Params = z.ZodTypeAny;
+type InferParams = z.infer<Params>;
+
+function Test<P extends Params, Params>(args: P): Params {
+  console.log(args);
+  return args;
+}
+
 export const useAssistantToolUI = (
   tool: AssistantToolUIProps<any, any> | null,
 ) => {
