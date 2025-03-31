@@ -9,6 +9,21 @@ export type AssistantToolUIProps<TArgs, TResult> = {
   render: ToolCallContentPartComponent<TArgs, TResult>;
 };
 
+export interface AssistantUITool {
+  description: string;
+  parameters: unknown;
+  client: ({ args }: { args: AssistantUITool["parameters"] }) => void;
+}
+export interface AssistantUITool {
+  description: string;
+  parameters: unknown;
+  server: () => void;
+}
+
+export type AssistantUIToolBox = Record<string, string>;
+
+// export const auiToolbox
+
 export const useAssistantToolUI = (
   tool: AssistantToolUIProps<any, any> | null,
 ) => {

@@ -145,10 +145,24 @@ export function Chat() {
   );
 }
 
-// const tools = assistantTools({
-//   .client
-//   .server
-// })
+/*
+  const auitoolbox = assistantUIToolBox({
+    weather: {
+      description: "Weather tool",
+      parameters: z.object({
+        location: z.string()
+      })
+      client: ({ args }) => Math.random()
+    }
+  })
+
+  auitoolbox.weather.render({ args, result }) => {
+    render (
+      { typeof result === number }
+      <div>{result}</div>
+    )
+  }
+ */
 
 // Record<string, {}> {} descrip, param, server / client,
 
