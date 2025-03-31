@@ -2,7 +2,7 @@
 
 import { makeAssistantTool, makeAssistantToolUI } from "@assistant-ui/react";
 import { Thread } from "@assistant-ui/react-ui";
-import { ToolInvocation } from "ai";
+import { Tool, ToolInvocation } from "ai";
 import { useChat } from "@ai-sdk/react";
 import { z } from "zod";
 
@@ -144,43 +144,6 @@ export function Chat() {
     </>
   );
 }
-
-// A generic type for a single UI-tool.
-export type AssistantUITool<T extends z.ZodTypeAny> = {
-  description: string;
-  parameters: T;
-  client: (args: z.infer<T>) => unknown;
-};
-
-// A type for a toolbox, which is a record of tools keyed by string.
-export type AssistantUIToolBox<
-  T extends Record<string, AssistantUITool<z.ZodTypeAny>>,
-> = {
-  [I in keyof T]: AssistantUITool<T[I]["parameters"]>;
-};
-
-// A helper function to build the toolbox and maintain proper inference.
-export function assistantUIToolBox<
-  Tools extends Record<string, AssistantUITool<z.ZodTypeAny>>,
->(tools: Tools): AssistantUIToolBox<Tools> {
-  return tools;
-}
-
-// Example usage:
-const auitoolbox = assistantUIToolBox({
-  weather: {
-    description: "Weather tool",
-    parameters: z.object({
-      location: z.string(),
-    }),
-    client: (args) => {
-      // Here, args is inferred as { location: string }
-      return Math.random();
-    },
-  },
-});
-
-auitoolbox.weather.client({ location: "test" });
 
 /*
   const auitoolbox = assistantUIToolBox({
