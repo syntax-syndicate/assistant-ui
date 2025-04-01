@@ -1,28 +1,25 @@
+import { weatherTool, webSearchTool } from "@/tools";
 import { openai } from "@ai-sdk/openai";
-import { streamText, tool } from "ai";
-import z from "zod";
+import { aiSDKAdapter } from "@assistant-ui/react";
+import { streamText } from "ai";
 
 export const maxDuration = 30;
 
 export async function POST(req: Request) {
   const { messages } = await req.json();
 
-  const weahter = tool({
-    description: "Get the weather in a location",
-    parameters: z.object({
-      location: z.string().describe("The location to get the weather for"),
-    }),
-    execute: async ({ location }) => ({
-      location,
-      temperature: 72 + Math.floor(Math.random() * 21) - 10,
-    }),
-  });
+  console.log("weather: ", typeof weatherTool.execute);
+
+  weatherTool.execute("test");
 
   const result = streamText({
     model: openai("gpt-4o"),
     messages,
     tools: {
-      weather: weahter,
+      weather: weatherTool!,
+    },
+    onError: (e) => {
+      console.log(e);
     },
   });
 

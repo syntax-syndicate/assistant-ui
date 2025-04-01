@@ -5,7 +5,7 @@ import { useToolUIsStore } from "../context/react/AssistantContext";
 import type { ToolCallContentPartComponent } from "../types/ContentPartComponentTypes";
 import z from "zod";
 import { makeAssistantToolUI } from "./makeAssistantToolUI";
-import { tool } from "./tool";
+import { tool, ToolExecutionOptions } from "ai";
 
 export type AssistantToolUIProps<TArgs, TResult> = {
   toolName: string;
@@ -25,7 +25,7 @@ type ToolTest<P extends Parameters = any, Res = any> = {
       server?: never;
     }
   | {
-      server: (args: InferParameters<P>) => PromiseLike<Res> | Res;
+      server: (args: InferParameters<P>) => PromiseLike<Res>;
       client?: never;
     }
 );
@@ -35,41 +35,80 @@ type ServerTool<P extends Parameters = any, Res = any> = {
   parameters: P;
   description?: string;
   render?: ToolCallContentPartComponent<P, Res>;
-  server: (args: InferParameters<P>) => PromiseLike<Res> | Res;
+  server: (
+    args: InferParameters<P>,
+    options?: ToolExecutionOptions,
+  ) => PromiseLike<Res>;
   client?: never;
 };
 
-export const auiTool = <T extends Parameters, Res>(a: ToolTest<T, Res>) => ({
+type ClientTool<P extends Parameters = any, Res = any> = {
+  toolName: string;
+  parameters: P;
+  description?: string;
+  render?: ToolCallContentPartComponent<P, Res>;
+  client: (args: InferParameters<P>) => PromiseLike<Res> | Res;
+  server?: never;
+};
+
+// export const auiTool = <T extends Parameters, Res>(a: ServerTool<T, Res>) => ({
+//   ...a,
+//   getUI: () =>
+//     makeAssistantToolUI<T, Res>({
+//       toolName: a.toolName,
+//       render: a.render ?? (() => <div>Default</div>),
+//     }),
+// });
+
+// type ServerTool = <T extends Parameters, Res>(
+//   a: ServerTool<T, Res>,
+// ) => ServerTool<T, Res> & {
+//   getUI: () => ReturnType<typeof makeAssistantToolUI<T, Res>>;
+// };
+// | (<T extends Parameters, Res>(
+//     a: ClientTool<T, Res>,
+//   ) => ClientTool<T, Res> & {
+//     getUI: () => ReturnType<typeof makeAssistantToolUI<T, Res>>;
+//   });
+
+type AUIServerTool = <T extends Parameters, Res>(
+  a: ServerTool<T, Res>,
+) => ServerTool<T, Res> & {
+  getUI: () => ReturnType<typeof makeAssistantToolUI<T, Res>>;
+};
+
+export const auiServerTool: AUIServerTool = (a) => ({
   ...a,
   getUI: () =>
-    makeAssistantToolUI<T, Res>({
+    makeAssistantToolUI({
       toolName: a.toolName,
       render: a.render ?? (() => <div>Default</div>),
     }),
 });
 
-export const aiSDKAdapter = <T extends ServerTool>(a: T) =>
-  tool({
-    description: a.description,
+export const aiSDKAdapter = (a: ServerTool<any, any>) => {
+  return tool({
+    ...(a.description && { description: a.description }),
     parameters: a.parameters,
-    execute: a.server,
+    execute: async () => console.log("?????"),
   });
+};
 
-export const auiToolBox = <
-  T extends Record<string, ReturnType<typeof auiTool<any, any>>>,
->(
-  a: T,
-) => ({
-  ...a,
-});
+// export const auiToolBox = <
+//   T extends Record<string, ReturnType<typeof auiTool<any, any>>>,
+// >(
+//   a: T,
+// ) => ({
+//   ...a,
+// });
 
-const t = auiTool({
-  toolName: "test",
-  parameters: z.object({
-    temp: z.string(),
-  }),
-  client: (a) => parseInt(a),
-});
+// const t = auiTool({
+//   toolName: "test",
+//   parameters: z.object({
+//     temp: z.string(),
+//   }),
+//   client: (a) => parseInt(a),
+// });
 
 // const a = auiToolBox({
 //   test: auiTool({
