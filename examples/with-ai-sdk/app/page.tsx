@@ -145,7 +145,7 @@ export function Chat() {
     </>
   );
 }
-const WebSearchToolUI = webSearchTool.getUI();
+// const WebSearchToolUI = webSearchTool.getUI();
 
 /*
   const auitoolbox = assistantUIToolBox({
@@ -183,38 +183,38 @@ const WebSearchToolUI = webSearchTool.getUI();
 
 // all zod based for now, with standard schema in the future
 
-// const WebSearchToolUI = makeAssistantToolUI<WebSearchArgs, WebSearchResult>({
-//   toolName: "weather",
-//   render: ({ args, status, result, addResult }) => {
-//     return (
-//       <div className="rounded-lg border p-4">
-//         status: {status.type}
-//         <button
-//           onClick={() =>
-//             addResult({
-//               location: "sf",
-//               temperature: "101",
-//             })
-//           }
-//         >
-//           complete
-//         </button>
-//         {status.type === "complete" ? (
-//           <div className="space-y-2">
-//             <p>
-//               <strong>Location:</strong> {result?.location}
-//             </p>
-//             <p>
-//               <strong>Temperature:</strong> {result?.temperature}°C
-//             </p>
-//           </div>
-//         ) : (
-//           <p>Loading weather data...</p>
-//         )}
-//       </div>
-//     );
-//   },
-// });
+const WebSearchToolUI = makeAssistantToolUI<WebSearchArgs, WebSearchResult>({
+  toolName: "weather",
+  render: ({ args, status, result, addResult }) => {
+    return (
+      <div className="rounded-lg border p-4">
+        status: {status.type}
+        <button
+          onClick={() =>
+            addResult({
+              location: "sf",
+              temperature: "101",
+            })
+          }
+        >
+          complete
+        </button>
+        {status.type === "complete" ? (
+          <div className="space-y-2">
+            <p>
+              <strong>Location:</strong> {result?.location}
+            </p>
+            <p>
+              <strong>Temperature:</strong> {result?.temperature}°C
+            </p>
+          </div>
+        ) : (
+          <p>Loading weather data...</p>
+        )}
+      </div>
+    );
+  },
+});
 
 // const WebSearchToolUI = auiTool({
 //   toolName: "weather",

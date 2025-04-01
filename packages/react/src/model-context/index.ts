@@ -8,9 +8,6 @@ export { useAssistantTool, type AssistantToolProps } from "./useAssistantTool";
 export {
   useAssistantToolUI,
   type AssistantToolUIProps,
-  auiServerTool,
-  auiToolBox,
-  aiSDKAdapter,
 } from "./useAssistantToolUI";
 export { useInlineRender } from "./useInlineRender";
 
@@ -28,7 +25,7 @@ export type {
   Tool,
 } from "./ModelContextTypes";
 
-export { tool } from "./tool";
+export { aiSDKAdapter, auiServerTool } from "./tool";
 
 /**
  * @deprecated This function was renamed to `makeAssistantVisible`.
