@@ -5,6 +5,7 @@ import { useToolUIsStore } from "../context/react/AssistantContext";
 import type { ToolCallContentPartComponent } from "../types/ContentPartComponentTypes";
 import z from "zod";
 import { makeAssistantToolUI } from "./makeAssistantToolUI";
+import { tool } from "./tool";
 
 export type AssistantToolUIProps<TArgs, TResult> = {
   toolName: string;
@@ -14,7 +15,7 @@ export type AssistantToolUIProps<TArgs, TResult> = {
 type Parameters = z.ZodTypeAny;
 type InferParameters<P extends Parameters> = z.infer<P>;
 type ToolTest<P extends Parameters = any, Res = any> = {
-  name: string;
+  toolName: string;
   parameters: P;
   description?: string;
   render?: ToolCallContentPartComponent<P, Res>;
@@ -29,7 +30,29 @@ type ToolTest<P extends Parameters = any, Res = any> = {
     }
 );
 
-const auiTool = <T extends Parameters, Res>(a: ToolTest<T, Res>) => a;
+type ServerTool<P extends Parameters = any, Res = any> = {
+  toolName: string;
+  parameters: P;
+  description?: string;
+  render?: ToolCallContentPartComponent<P, Res>;
+  server: (args: InferParameters<P>) => PromiseLike<Res> | Res;
+  client?: never;
+};
+
+const auiTool = <T extends Parameters, Res>(a: ToolTest<T, Res>) => ({
+  ...a,
+  getUI: makeAssistantToolUI<T, Res>({
+    toolName: a.toolName,
+    render: a.render ?? (() => <div>Default</div>),
+  }),
+});
+
+export const aiSDKAdapter = <T extends ServerTool>(a: T) =>
+  tool({
+    description: a.description,
+    parameters: a.parameters,
+    execute: a.server,
+  });
 
 const auiToolBox = <
   T extends Record<string, ReturnType<typeof auiTool<any, any>>>,
@@ -40,14 +63,14 @@ const auiToolBox = <
 });
 
 const t = auiTool({
-  name: "test",
+  toolName: "test",
   parameters: z.string(),
   client: (a) => parseInt(a),
 });
 
 const a = auiToolBox({
   test: auiTool({
-    name: "teset",
+    toolName: "teset",
     parameters: z.string(),
     client: (a) => parseInt(a),
     render: () => <div></div>,
