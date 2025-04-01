@@ -17,7 +17,7 @@ type ToolTest<P extends Parameters = any, Res = any> = {
   name: string;
   parameters: P;
   description?: string;
-  render?: ToolCallContentPartComponent<InferParameters<P>, Res>;
+  render?: ToolCallContentPartComponent<P, Res>;
 } & (
   | {
       client: (args: InferParameters<P>) => PromiseLike<Res> | Res;
@@ -29,15 +29,7 @@ type ToolTest<P extends Parameters = any, Res = any> = {
     }
 );
 
-const auiTool = <T extends Parameters, Res>(a: ToolTest<T, Res>) => ({
-  ...a,
-  ...(a.render && {
-    getUI: makeAssistantToolUI<InferParameters<T>, Res>({
-      toolName: a.name,
-      render: a.render,
-    }),
-  }),
-});
+const auiTool = <T extends Parameters, Res>(a: ToolTest<T, Res>) => a;
 
 const auiToolBox = <
   T extends Record<string, ReturnType<typeof auiTool<any, any>>>,
