@@ -39,12 +39,13 @@ type ServerTool<P extends Parameters = any, Res = any> = {
   client?: never;
 };
 
-const auiTool = <T extends Parameters, Res>(a: ToolTest<T, Res>) => ({
+export const auiTool = <T extends Parameters, Res>(a: ToolTest<T, Res>) => ({
   ...a,
-  getUI: makeAssistantToolUI<T, Res>({
-    toolName: a.toolName,
-    render: a.render ?? (() => <div>Default</div>),
-  }),
+  getUI: () =>
+    makeAssistantToolUI<T, Res>({
+      toolName: a.toolName,
+      render: a.render ?? (() => <div>Default</div>),
+    }),
 });
 
 export const aiSDKAdapter = <T extends ServerTool>(a: T) =>
@@ -54,7 +55,7 @@ export const aiSDKAdapter = <T extends ServerTool>(a: T) =>
     execute: a.server,
   });
 
-const auiToolBox = <
+export const auiToolBox = <
   T extends Record<string, ReturnType<typeof auiTool<any, any>>>,
 >(
   a: T,
@@ -64,19 +65,21 @@ const auiToolBox = <
 
 const t = auiTool({
   toolName: "test",
-  parameters: z.string(),
+  parameters: z.object({
+    temp: z.string(),
+  }),
   client: (a) => parseInt(a),
 });
 
-const a = auiToolBox({
-  test: auiTool({
-    toolName: "teset",
-    parameters: z.string(),
-    client: (a) => parseInt(a),
-    render: () => <div></div>,
-  }),
-  t: t,
-});
+// const a = auiToolBox({
+//   test: auiTool({
+//     toolName: "teset",
+//     parameters: z.string(),
+//     client: (a) => parseInt(a),
+//     render: () => <div></div>,
+//   }),
+//   t: t,
+// });
 
 export const useAssistantToolUI = (
   tool: AssistantToolUIProps<any, any> | null,

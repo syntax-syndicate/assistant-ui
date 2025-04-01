@@ -8,6 +8,8 @@ export { useAssistantTool, type AssistantToolProps } from "./useAssistantTool";
 export {
   useAssistantToolUI,
   type AssistantToolUIProps,
+  auiTool,
+  auiToolBox,
 } from "./useAssistantToolUI";
 export { useInlineRender } from "./useInlineRender";
 
