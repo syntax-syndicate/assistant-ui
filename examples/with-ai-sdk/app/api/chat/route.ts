@@ -13,9 +13,6 @@ export async function POST(req: Request) {
     tools: {
       weather: weatherTool,
     },
-    onError: (e) => {
-      console.log(e);
-    },
   });
 
   return result.toDataStreamResponse();
