@@ -13,22 +13,12 @@ export type AssistantToolUIProps<TArgs, TResult> = {
 
 type Parameters = z.ZodTypeAny;
 type InferParameters<P extends Parameters> = z.infer<P>;
-type ToolTest<P extends Parameters = any, Res = any> =
-  | {
-      name: string;
-      parameters: P;
-      description?: string;
-      // client: (args: InferParameters<P>) => PromiseLike<Res> | Res;
-      render?: ToolCallContentPartComponent<InferParameters<P>, Res>;
-    }
-  | {
-      name: string;
-      parameters: P;
-      description?: string;
-      // server: (args: InferParameters<P>) => PromiseLike<Res> | Res;
-      // render?: (args: Res) => any;
-      render?: ToolCallContentPartComponent<InferParameters<P>, Res>;
-    };
+type ToolTest<P extends Parameters = any, Res = any> = {
+  name: string;
+  parameters: P;
+  description?: string;
+  render?: ToolCallContentPartComponent<InferParameters<P>, Res>;
+};
 
 const auiTool = <T extends Parameters, Res>(
   a:
