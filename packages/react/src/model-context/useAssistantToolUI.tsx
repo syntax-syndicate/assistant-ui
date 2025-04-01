@@ -16,6 +16,7 @@ type ToolTest<P extends Parameters = any, Res = any> = {
   parameters: P;
   description?: string;
   client: (args: InferParameters<P>) => Promise<Res> | Res;
+  render: (args: Res) => React.ReactNode;
 };
 
 const auiTool = <T extends Parameters, Res>(
@@ -26,7 +27,8 @@ const auiTool = <T extends Parameters, Res>(
 
 auiTool({
   parameters: z.string(),
-  client: (a) => a,
+  client: (a) => parseInt(a),
+  render: (b) => <div>{b}</div>,
 });
 
 export const useAssistantToolUI = (
