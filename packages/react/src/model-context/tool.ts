@@ -34,7 +34,7 @@ export type AssistantToolUIProps<TArgs, TResult> = {
   render: ToolCallContentPartComponent<TArgs, TResult>;
 };
 
-type Parameters = z.ZodTypeAny;
+export type Parameters = z.ZodTypeAny;
 type InferParameters<P extends Parameters> = z.infer<P>;
 type ToolTest<P extends Parameters = any, Res = any> = {
   toolName: string;
@@ -52,7 +52,7 @@ type ToolTest<P extends Parameters = any, Res = any> = {
     }
 );
 
-type ServerTool<P extends Parameters = any, Res = any> = {
+export type ServerTool<P extends Parameters = any, Res = any> = {
   toolName: string;
   parameters: P;
   description?: string;
@@ -64,7 +64,7 @@ type ServerTool<P extends Parameters = any, Res = any> = {
   client?: never;
 };
 
-type ClientTool<P extends Parameters = any, Res = any> = {
+export type ClientTool<P extends Parameters = any, Res = any> = {
   toolName: string;
   parameters: P;
   description?: string;

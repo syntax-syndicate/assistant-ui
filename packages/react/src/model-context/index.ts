@@ -26,6 +26,7 @@ export type {
 } from "./ModelContextTypes";
 
 export { aiSDKAdapter, auiServerTool } from "./tool";
+export { getToolUI } from "./getToolUI";
 
 /**
  * @deprecated This function was renamed to `makeAssistantVisible`.
