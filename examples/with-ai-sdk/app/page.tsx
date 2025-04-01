@@ -1,10 +1,6 @@
 "use client";
 
-import {
-  getToolUI,
-  makeAssistantTool,
-  makeAssistantToolUI,
-} from "@assistant-ui/react";
+import { getToolUI, registerTool } from "@assistant-ui/react";
 import { Thread } from "@assistant-ui/react-ui";
 import { Tool, ToolInvocation } from "ai";
 import { useChat } from "@ai-sdk/react";
@@ -220,6 +216,15 @@ type WebSearchResult = {
 //   },
 // });
 
+// const confirmationInput = auiClientTool({
+//   toolName: "confirmation",
+//   description: "Asks a user for confirmation before continuing",
+//   parameters: z.object({
+//     location: z.string(),
+//     temperature: z.number(),
+//   }),
+// });
+
 const WebSearchToolUI = getToolUI({
   tool: webSearchTool,
   render: ({ status, result, addResult }) => {
@@ -252,6 +257,22 @@ const WebSearchToolUI = getToolUI({
     );
   },
 });
+
+// const Confirm = registerTool({
+//   tool: confirmationInput,
+// });
+
+// const Confirm = makeAssistantTool({
+//   toolName: "day",
+//   description: "Gets the current day of the week",
+//   parameters: z.object({
+//     location: z.string(),
+//     temperature: z.number(),
+//   }),
+//   execute: () => {
+//     return "wednesday";
+//   },
+// });
 
 // const WebSearchToolUI = auiTool({
 //   toolName: "weather",
@@ -299,6 +320,7 @@ export default function Home() {
     <main className="h-full">
       {/* <Chat /> */}
       <WebSearchToolUI />
+      {/* <Confirm /> */}
       <Thread />
     </main>
   );

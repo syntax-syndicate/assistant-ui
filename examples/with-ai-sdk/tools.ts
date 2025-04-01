@@ -9,12 +9,26 @@ export const webSearchTool = auiServerTool({
     temperature: z.number(),
   }),
   server: async () => {
-    console.log("YEAHHH");
     return {
       location: "sf",
       temperature: 78,
     };
   },
 });
+
+// export const webSearchTool = auiClientTool({
+//   toolName: "weather",
+//   description: "fetches current weather for location",
+//   parameters: z.object({
+//     location: z.string(),
+//     temperature: z.number(),
+//   }),
+//   execute: async () => {
+//     return {
+//       location: "sf",
+//       temperature: 78,
+//     };
+//   },
+// });
 
 export const weatherTool = aiSDKAdapter(webSearchTool);

@@ -5,7 +5,7 @@ import {
   type AssistantToolUIProps,
   useAssistantToolUI,
 } from "./useAssistantToolUI";
-import { ServerTool, Parameters } from "./tool";
+import { ServerTool, Parameters, ClientTool } from "./tool";
 import { ToolCallContentPartComponent } from "../types/ContentPartComponentTypes";
 
 export type AssistantToolUI = FC & {
@@ -13,7 +13,7 @@ export type AssistantToolUI = FC & {
 };
 
 export const getToolUI = <TArgs extends Parameters, TResult>(a: {
-  tool: ServerTool<TArgs, TResult>;
+  tool: ServerTool<TArgs, TResult> | ClientTool<TArgs, TResult>;
   render: ToolCallContentPartComponent<TArgs, TResult>;
 }) => {
   const ToolUI: AssistantToolUI = () => {

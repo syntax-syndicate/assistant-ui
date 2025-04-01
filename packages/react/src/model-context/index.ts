@@ -27,6 +27,7 @@ export type {
 
 export { aiSDKAdapter, auiServerTool } from "./tool";
 export { getToolUI } from "./getToolUI";
+export { registerTool } from "./getTool";
 
 /**
  * @deprecated This function was renamed to `makeAssistantVisible`.
