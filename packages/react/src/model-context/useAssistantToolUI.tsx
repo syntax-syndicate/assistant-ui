@@ -10,6 +10,25 @@ export type AssistantToolUIProps<TArgs, TResult> = {
   render: ToolCallContentPartComponent<TArgs, TResult>;
 };
 
+type Parameters = z.ZodTypeAny;
+type InferParameters<P extends Parameters> = z.infer<P>;
+type ToolTest<P extends Parameters = any, Res = any> = {
+  parameters: P;
+  description?: string;
+  client: (args: InferParameters<P>) => Promise<Res> | Res;
+};
+
+const auiTool = <T extends Parameters, Res>(
+  a: ToolTest<T, Res> & {
+    client: (args: InferParameters<T>) => Res;
+  },
+) => a;
+
+auiTool({
+  parameters: z.string(),
+  client: (a) => a,
+});
+
 export const useAssistantToolUI = (
   tool: AssistantToolUIProps<any, any> | null,
 ) => {
