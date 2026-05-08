@@ -864,6 +864,34 @@ describe("AGUIThreadRuntimeCore", () => {
     ).rejects.toThrow(/expired/);
   });
 
+  it("rejects resume responses with unknown interrupt ids", async () => {
+    const runAgent = vi.fn(async (input: any, subscriber: any) => {
+      subscriber.onRunFinishedEvent?.({
+        event: {
+          type: "RUN_FINISHED",
+          runId: input.runId,
+          outcome: {
+            type: "interrupt",
+            interrupts: [{ id: "int-1", reason: "tool_call" }],
+          },
+        },
+      });
+      subscriber.onRunFinalized?.();
+    });
+    const agent = { runAgent } as unknown as HttpAgent;
+
+    const core = createCore(agent);
+    await core.append(createAppendMessage());
+
+    await expect(
+      core.submitInterruptResponses([
+        { interruptId: "int-1", status: "resolved" },
+        { interruptId: "int-unknown", status: "resolved" },
+      ]),
+    ).rejects.toThrow(/unknown interrupt ids: int-unknown/);
+    expect(runAgent).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects malformed expiresAt strings", async () => {
     const runAgent = vi.fn(async (input: any, subscriber: any) => {
       subscriber.onRunFinishedEvent?.({
@@ -960,6 +988,80 @@ describe("AGUIThreadRuntimeCore", () => {
     expect(persistedAssistant.metadata.custom.agui.interrupts).toEqual([
       { id: "int-1", reason: "tool_call" },
     ]);
+  });
+
+  it("blocks append/reload/resume while interrupts are pending", async () => {
+    const runAgent = vi.fn(async (input: any, subscriber: any) => {
+      subscriber.onRunFinishedEvent?.({
+        event: {
+          type: "RUN_FINISHED",
+          runId: input.runId,
+          outcome: {
+            type: "interrupt",
+            interrupts: [{ id: "int-1", reason: "tool_call" }],
+          },
+        },
+      });
+      subscriber.onRunFinalized?.();
+    });
+    const agent = { runAgent } as unknown as HttpAgent;
+
+    const core = createCore(agent);
+    await core.append(createAppendMessage());
+    expect(core.getPendingInterrupts()?.interrupts).toHaveLength(1);
+
+    await expect(
+      core.append(createAppendMessage({ parentId: null })),
+    ).rejects.toThrow(/interrupts are pending/);
+    await expect(core.reload(null)).rejects.toThrow(/interrupts are pending/);
+    await expect(
+      core.resume({
+        parentId: null,
+        sourceId: null,
+        runConfig: {} as TestRunConfig,
+      }),
+    ).rejects.toThrow(/interrupts are pending/);
+
+    expect(runAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows submitInterruptResponses to resume past the pending guard", async () => {
+    let runCount = 0;
+    const runAgent = vi.fn(async (input: any, subscriber: any) => {
+      runCount++;
+      if (runCount === 1) {
+        subscriber.onRunFinishedEvent?.({
+          event: {
+            type: "RUN_FINISHED",
+            runId: input.runId,
+            outcome: {
+              type: "interrupt",
+              interrupts: [{ id: "int-1", reason: "tool_call" }],
+            },
+          },
+        });
+      } else {
+        subscriber.onRunFinishedEvent?.({
+          event: {
+            type: "RUN_FINISHED",
+            runId: input.runId,
+            outcome: { type: "success" },
+          },
+        });
+      }
+      subscriber.onRunFinalized?.();
+    });
+    const agent = { runAgent } as unknown as HttpAgent;
+
+    const core = createCore(agent);
+    await core.append(createAppendMessage());
+
+    await expect(
+      core.submitInterruptResponses([
+        { interruptId: "int-1", status: "resolved" },
+      ]),
+    ).resolves.toBeUndefined();
+    expect(runCount).toBe(2);
   });
 
   it("syncs runtime state snapshot onto the agent before runAgent", async () => {
