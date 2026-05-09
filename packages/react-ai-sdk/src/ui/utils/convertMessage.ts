@@ -9,6 +9,7 @@ import type {
   TextMessagePart,
   DataMessagePart,
   SourceMessagePart,
+  SourceProviderMetadata,
   FileMessagePart,
   ThreadMessageLike,
 } from "@assistant-ui/core";
@@ -198,7 +199,13 @@ function convertParts(
           sourceType: "url",
           id: part.sourceId,
           url: part.url,
-          title: part.title || "",
+          ...(part.title != null ? { title: part.title } : undefined),
+          ...(part.providerMetadata != null
+            ? {
+                providerMetadata:
+                  part.providerMetadata as SourceProviderMetadata,
+              }
+            : undefined),
         } satisfies SourceMessagePart;
       }
 
@@ -212,10 +219,20 @@ function convertParts(
       }
 
       if (part.type === "source-document") {
-        console.warn(
-          "Source document parts are not yet supported in conversion",
-        );
-        return null;
+        return {
+          type: "source",
+          sourceType: "document",
+          id: part.sourceId,
+          title: part.title,
+          mediaType: part.mediaType,
+          ...(part.filename != null ? { filename: part.filename } : undefined),
+          ...(part.providerMetadata != null
+            ? {
+                providerMetadata:
+                  part.providerMetadata as SourceProviderMetadata,
+              }
+            : undefined),
+        } satisfies SourceMessagePart;
       }
 
       if (part.type.startsWith("data-")) {

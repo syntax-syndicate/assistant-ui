@@ -16,14 +16,31 @@ export type ReasoningMessagePart = {
   readonly parentId?: string;
 };
 
-export type SourceMessagePart = {
-  readonly type: "source";
-  readonly sourceType: "url";
-  readonly id: string;
-  readonly url: string;
-  readonly title?: string;
-  readonly parentId?: string;
+export type SourceProviderMetadata = {
+  readonly [providerName: string]: ReadonlyJSONObject;
 };
+
+export type SourceMessagePart =
+  | {
+      readonly type: "source";
+      readonly sourceType: "url";
+      readonly id: string;
+      readonly url: string;
+      readonly title?: string;
+      readonly providerMetadata?: SourceProviderMetadata;
+      readonly parentId?: string;
+    }
+  | {
+      readonly type: "source";
+      readonly sourceType: "document";
+      readonly id: string;
+      readonly url?: undefined;
+      readonly title: string;
+      readonly mediaType: string;
+      readonly filename?: string;
+      readonly providerMetadata?: SourceProviderMetadata;
+      readonly parentId?: string;
+    };
 
 export type ImageMessagePart = {
   readonly type: "image";

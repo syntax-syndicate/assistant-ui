@@ -37,6 +37,94 @@ describe("AISDKMessageConverter", () => {
     expect(converted[0]?.attachments?.[1]?.type).toBe("file");
   });
 
+  it("converts source-document parts into document sources", () => {
+    const converted = AISDKMessageConverter.toThreadMessages([
+      {
+        id: "a1",
+        role: "assistant",
+        parts: [
+          {
+            type: "source-document",
+            sourceId: "doc_123",
+            title: "proposal.pdf",
+            mediaType: "application/pdf",
+            filename: "proposal.pdf",
+            providerMetadata: {
+              openai: {
+                type: "file_citation",
+                fileId: "file_123",
+                index: 0,
+              },
+            },
+          },
+        ],
+      } as any,
+    ]);
+
+    expect(converted).toHaveLength(1);
+    expect(converted[0]?.role).toBe("assistant");
+
+    const sourcePart = converted[0]?.content.find(
+      (part): part is any => part.type === "source",
+    );
+
+    expect(sourcePart).toMatchObject({
+      type: "source",
+      sourceType: "document",
+      id: "doc_123",
+      title: "proposal.pdf",
+      mediaType: "application/pdf",
+      filename: "proposal.pdf",
+      providerMetadata: {
+        openai: {
+          type: "file_citation",
+          fileId: "file_123",
+          index: 0,
+        },
+      },
+    });
+  });
+
+  it("converts source-url parts without synthesizing missing optional fields", () => {
+    const converted = AISDKMessageConverter.toThreadMessages([
+      {
+        id: "a1",
+        role: "assistant",
+        parts: [
+          {
+            type: "source-url",
+            sourceId: "url_123",
+            url: "https://example.com/report",
+            providerMetadata: {
+              openai: {
+                type: "url_citation",
+                index: 1,
+              },
+            },
+          },
+        ],
+      } as any,
+    ]);
+
+    const sourcePart = converted[0]?.content.find(
+      (part): part is any => part.type === "source",
+    );
+
+    expect(sourcePart).toMatchObject({
+      type: "source",
+      sourceType: "url",
+      id: "url_123",
+      url: "https://example.com/report",
+      providerMetadata: {
+        openai: {
+          type: "url_citation",
+          index: 1,
+        },
+      },
+    });
+    expect(sourcePart).not.toHaveProperty("title");
+  });
+
   it("converts assistant image file parts into file content", () => {
     const converted = AISDKMessageConverter.toThreadMessages([
       {
