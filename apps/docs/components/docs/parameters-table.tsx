@@ -51,47 +51,56 @@ const Parameter: FC<{
   return (
     <div
       className={cn(
-        "group flex flex-col gap-2 border-border/50 border-b px-4 py-3 last:border-b-0",
+        "group border-border/50 border-b px-4 py-3 last:border-b-0",
         isNested && "bg-muted/30",
       )}
     >
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <code className="font-mono font-semibold text-foreground text-sm">
-          {parameter.name}
-        </code>
-        {parameter.deprecated && <StatusBadge variant="deprecated" />}
-        {parameter.name.startsWith("unstable_") && (
-          <StatusBadge variant="unstable" />
-        )}
-        {parameter.type && (
-          <code className="font-mono text-muted-foreground text-xs">
-            {isOptional && "?"}
-            {": "}
-            {parameter.type}
+      <dt>
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <code className="font-mono font-semibold text-foreground text-sm">
+            {parameter.name}
           </code>
-        )}
-        {parameter.default && (
-          <span className="font-mono text-muted-foreground text-xs">
-            = {parameter.default}
-          </span>
-        )}
-      </div>
-
-      <p className="whitespace-pre-line text-muted-foreground text-sm leading-relaxed">
-        {parameter.description}
-      </p>
-
-      {parameter.deprecated && (
-        <p className="text-amber-600 text-xs dark:text-amber-400">
-          Deprecated: {parameter.deprecated}
-        </p>
-      )}
-
-      {parameter.children?.map((child, i) => (
-        <div key={child.type ?? i} className="mt-2">
-          <ParametersBox {...child} isNested />
+          {parameter.deprecated && <StatusBadge variant="deprecated" />}
+          {parameter.name.startsWith("unstable_") && (
+            <StatusBadge variant="unstable" />
+          )}
+          {parameter.type && (
+            <>
+              {" "}
+              <code className="font-mono text-muted-foreground text-xs">
+                {isOptional && "?"}
+                {": "}
+                {parameter.type}
+              </code>
+            </>
+          )}
+          {parameter.default && (
+            <>
+              {" "}
+              <span className="font-mono text-muted-foreground text-xs">
+                = {parameter.default}
+              </span>
+            </>
+          )}
         </div>
-      ))}
+      </dt>
+      <dd className="pt-2">
+        <p className="whitespace-pre-line text-muted-foreground text-sm leading-relaxed">
+          {parameter.description}
+        </p>
+
+        {parameter.deprecated && (
+          <p className="mt-2 text-amber-600 text-xs dark:text-amber-400">
+            Deprecated: {parameter.deprecated}
+          </p>
+        )}
+
+        {parameter.children?.map((child, i) => (
+          <div key={child.type ?? i} className="mt-3">
+            <ParametersBox {...child} isNested />
+          </div>
+        ))}
+      </dd>
     </div>
   );
 };
@@ -113,7 +122,7 @@ const ParametersBox: FC<
           </code>
         </div>
       )}
-      <div>
+      <dl>
         {parameters.map((parameter) => (
           <Parameter
             key={parameter.name}
@@ -121,7 +130,7 @@ const ParametersBox: FC<
             isNested={isNested}
           />
         ))}
-      </div>
+      </dl>
     </div>
   );
 };
