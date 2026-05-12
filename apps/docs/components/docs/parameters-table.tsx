@@ -77,7 +77,7 @@ const Parameter: FC<{
         )}
       </div>
 
-      <p className="text-muted-foreground text-sm leading-relaxed">
+      <p className="whitespace-pre-line text-muted-foreground text-sm leading-relaxed">
         {parameter.description}
       </p>
 
@@ -106,13 +106,8 @@ const ParametersBox: FC<
         isNested && "border-border/40",
       )}
     >
-      {type && (
-        <div
-          className={cn(
-            "border-border/60 border-b bg-muted/50 px-4 py-2",
-            isNested && "border-border/40 bg-muted/30",
-          )}
-        >
+      {type && !isNested && (
+        <div className="border-border/60 border-b bg-muted/50 px-4 py-2">
           <code className="font-medium font-mono text-muted-foreground text-xs">
             {type}
           </code>
