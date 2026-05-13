@@ -380,3 +380,22 @@ export {
 } from "./primitives/composer/trigger";
 
 export type { Assistant } from "./augmentations";
+
+// --- mcp-apps ---
+export { McpAppRenderer, McpAppsRemoteHost } from "./mcp-apps";
+export type {
+  McpAppRendererOptions,
+  McpAppMetadata,
+  McpAppResource,
+  McpAppResourceMeta,
+  McpAppResourceCSP,
+  McpAppSandboxConfig,
+  McpAppHostInfo,
+  McpAppHostContext,
+  McpAppDisplayMode,
+  McpAppsHost,
+  McpAppsRemoteHostOptions,
+  McpAppToolCallParams,
+  ToolCallMessagePartMcpMetadata,
+} from "./mcp-apps";
+export type { McpAppResourceOutput } from "@assistant-ui/core/react";

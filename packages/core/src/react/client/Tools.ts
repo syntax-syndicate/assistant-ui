@@ -1,46 +1,70 @@
-import { resource, tapState, tapEffect, tapCallback } from "@assistant-ui/tap";
+import {
+  resource,
+  tapState,
+  tapEffect,
+  tapCallback,
+  tapMemo,
+  tapResources,
+  withKey,
+  type ResourceElement,
+} from "@assistant-ui/tap";
 import {
   tapAssistantClientRef,
   type ClientOutput,
   attachTransformScopes,
 } from "@assistant-ui/store";
-import type { ToolsState } from "../types/scopes/tools";
+import type { McpAppResourceOutput, ToolsState } from "../types/scopes/tools";
 import type { Tool } from "assistant-stream";
 import type { Toolkit } from "../model-context/toolbox";
 import type { ToolCallMessagePartComponent } from "../types/MessagePartComponentTypes";
 import { ModelContext } from "../../store";
 
+export type { McpAppResourceOutput };
+
 export const Tools = resource(
-  ({ toolkit }: { toolkit?: Toolkit }): ClientOutput<"tools"> => {
-    const [state, setState] = tapState<ToolsState>(() => ({
+  ({
+    toolkit,
+    mcpApp,
+  }: {
+    toolkit?: Toolkit;
+    mcpApp?: ResourceElement<McpAppResourceOutput> | undefined;
+  }): ClientOutput<"tools"> => {
+    const mcpAppOutputs = tapResources(
+      () => (mcpApp ? [withKey("mcpApp", mcpApp)] : []),
+      [mcpApp],
+    );
+    const mcpAppOutput = mcpAppOutputs[0];
+
+    const [toolsState, setToolsState] = tapState<{
+      tools: ToolsState["tools"];
+    }>(() => ({
       tools: {},
     }));
+
+    const state = tapMemo(
+      (): ToolsState => ({ tools: toolsState.tools, mcpApp: mcpAppOutput }),
+      [toolsState, mcpAppOutput],
+    );
 
     const clientRef = tapAssistantClientRef();
 
     const setToolUI = tapCallback(
       (toolName: string, render: ToolCallMessagePartComponent) => {
-        setState((prev) => {
-          return {
-            ...prev,
-            tools: {
-              ...prev.tools,
-              [toolName]: [...(prev.tools[toolName] ?? []), render],
-            },
-          };
-        });
+        setToolsState((prev) => ({
+          tools: {
+            ...prev.tools,
+            [toolName]: [...(prev.tools[toolName] ?? []), render],
+          },
+        }));
 
         return () => {
-          setState((prev) => {
-            return {
-              ...prev,
-              tools: {
-                ...prev.tools,
-                [toolName]:
-                  prev.tools[toolName]?.filter((r) => r !== render) ?? [],
-              },
-            };
-          });
+          setToolsState((prev) => ({
+            tools: {
+              ...prev.tools,
+              [toolName]:
+                prev.tools[toolName]?.filter((r) => r !== render) ?? [],
+            },
+          }));
         };
       },
       [],
