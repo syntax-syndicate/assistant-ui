@@ -3,6 +3,9 @@ import Link from "next/link";
 import type { FC, ReactNode } from "react";
 import { StatusBadge } from "./status-badge";
 
+const DESCRIPTION_LINK_CLASSNAME =
+  "font-medium text-foreground underline underline-offset-2";
+
 type ParameterDef = {
   name: string;
   type?: string;
@@ -26,7 +29,7 @@ const COMMON_PARAMS: Record<string, ParameterDef> = {
         <br />
         Read the{" "}
         <Link
-          className="font-medium text-foreground underline underline-offset-2"
+          className={DESCRIPTION_LINK_CLASSNAME}
           href="/docs/api-reference/primitives/composition"
         >
           Composition
@@ -36,6 +39,57 @@ const COMMON_PARAMS: Record<string, ParameterDef> = {
     ),
   },
 };
+
+const MARKDOWN_LINK_REGEX = /\[([^\]]+)\]\(([^)\s]+)\)/g;
+
+function renderLinkLabel(label: string): ReactNode {
+  if (label.startsWith("`") && label.endsWith("`")) {
+    return <code>{label.slice(1, -1)}</code>;
+  }
+  return label;
+}
+
+function renderDescription(description: string | ReactNode): ReactNode {
+  if (typeof description !== "string") return description;
+
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+  for (const match of description.matchAll(MARKDOWN_LINK_REGEX)) {
+    const fullMatch = match[0]!;
+    const label = match[1]!;
+    const linkHref = match[2]!;
+    const index = match.index ?? 0;
+    if (index > lastIndex) {
+      parts.push(description.slice(lastIndex, index));
+    }
+
+    const children = renderLinkLabel(label);
+    parts.push(
+      linkHref.startsWith("/") ? (
+        <Link
+          key={`${linkHref}-${index}`}
+          className={DESCRIPTION_LINK_CLASSNAME}
+          href={linkHref}
+        >
+          {children}
+        </Link>
+      ) : (
+        <a
+          key={`${linkHref}-${index}`}
+          className={DESCRIPTION_LINK_CLASSNAME}
+          href={linkHref}
+        >
+          {children}
+        </a>
+      ),
+    );
+    lastIndex = index + fullMatch.length;
+  }
+
+  if (lastIndex === 0) return description;
+  if (lastIndex < description.length) parts.push(description.slice(lastIndex));
+  return parts;
+}
 
 const Parameter: FC<{
   parameter: ParameterDef;
@@ -86,7 +140,7 @@ const Parameter: FC<{
       </dt>
       <dd className="pt-2">
         <p className="whitespace-pre-line text-muted-foreground text-sm leading-relaxed">
-          {parameter.description}
+          {renderDescription(parameter.description)}
         </p>
 
         {parameter.deprecated && (

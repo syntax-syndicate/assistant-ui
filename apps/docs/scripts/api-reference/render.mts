@@ -235,8 +235,13 @@ function readAuthoredPageParts(
   items: ExportInfo[],
 ): AuthoredPageParts | undefined {
   const filePath = apiReferencePagePath(section, slug);
-  if (!fs.existsSync(filePath)) return undefined;
-  const source = fs.readFileSync(filePath, "utf8");
+  let source: string;
+  try {
+    source = fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    if ((error as { code?: string }).code === "ENOENT") return undefined;
+    throw error;
+  }
   assertPairedMdxMarkers(filePath, source);
   const fm = readFrontmatter(filePath, source);
   const manual = extractManualSlot(source);
@@ -326,7 +331,12 @@ function exportSection(
   const heading = "#".repeat(headingLevel);
   const lines = [`${heading} ${item.name}`, ""];
   if (item.deprecated) {
-    lines.push(`Deprecated: ${mdxEscape(item.deprecated)}`, "");
+    lines.push(
+      `<Callout type="warn">`,
+      `<strong>Deprecated.</strong> ${mdxEscape(item.deprecated)}`,
+      `</Callout>`,
+      "",
+    );
   }
   if (item.jsDoc) {
     lines.push(mdxEscape(item.jsDoc), "");

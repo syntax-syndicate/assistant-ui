@@ -173,7 +173,12 @@ export function buildTypeDocs(exports: ExportInfo[]): {
   //    loop. Mirroring that here keeps property order byte-for-byte stable.
   for (const item of exports) {
     if (item.section === "primitives") {
-      for (const part of extractPrimitivePartsFor(item.name)) {
+      for (const part of extractPrimitivePartsFor(
+        item.name,
+        item.jsDocLinkResolver
+          ? { linkResolver: item.jsDocLinkResolver }
+          : undefined,
+      )) {
         // Skip lowercase `unstable_*` parts in api-ref typeDocs to match
         // legacy api-surface (which only matched capital `Unstable_`).
         // The primitive-docs projection still emits these.
@@ -203,6 +208,9 @@ export function buildTypeDocs(exports: ExportInfo[]): {
       if (!fs.existsSync(filePath)) continue;
       for (const [name, supportingShape] of extractSupportingTypeShapes(
         filePath,
+        item.jsDocLinkResolver
+          ? { linkResolver: item.jsDocLinkResolver }
+          : undefined,
       )) {
         if (typeDocs.has(name)) continue;
         const supportingTd = shapeToTypeDoc(supportingShape);

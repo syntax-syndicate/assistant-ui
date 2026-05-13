@@ -12,6 +12,7 @@ import {
   extractJsDoc,
   extractSignature,
   getProject,
+  renderJsDocLinks,
 } from "./extract.mts";
 
 export type ApiSection =
@@ -50,6 +51,7 @@ export type ExportInfo = {
   classificationRule: string;
   classificationConfidence: "strong" | "medium" | "fallback";
   classificationReason: string;
+  jsDocLinkResolver?: (target: string) => string | undefined;
 };
 
 export const SECTION_ORDER = [
@@ -162,24 +164,32 @@ type DiscoveredExportInput = {
   deprecated?: string;
 };
 
-type ExportBuilder = (input: DiscoveredExportInput) => ExportInfo | undefined;
+type ClassifiedExportInput = DiscoveredExportInput & {
+  sourcePath?: string;
+  kind: ExportKind;
+  placement: ReturnType<typeof classifyExport>;
+};
 
-function collectExports(
-  entryPath: string,
-  buildExport: ExportBuilder,
-): ExportInfo[] {
+type ApiReferenceLinkItem = Pick<ExportInfo, "name" | "section" | "page">;
+
+const MANUAL_API_REFERENCE_LINKS = new Map([
+  [
+    "AssistantState",
+    "/docs/api-reference/primitives/assistant-if#assistantstate",
+  ],
+]);
+
+function collectExportInputs(entryPath: string): DiscoveredExportInput[] {
   const project = getProject();
   const sourceFile =
     project.getSourceFile(entryPath) ?? project.addSourceFileAtPath(entryPath);
   const seen = new Set<string>();
-  const exports: ExportInfo[] = [];
+  const exports: DiscoveredExportInput[] = [];
 
   const addExport = (input: DiscoveredExportInput) => {
     if (seen.has(input.name) || IGNORED_EXPORTS.has(input.name)) return;
-    const info = buildExport(input);
-    if (!info) return;
     seen.add(input.name);
-    exports.push(info);
+    exports.push(input);
   };
 
   for (const decl of sourceFile.getExportDeclarations()) {
@@ -197,53 +207,143 @@ function collectExports(
   return exports.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function discoverExports(): ExportInfo[] {
-  return collectExports(REACT_INDEX, ({ name, resolved, deprecated }) => {
-    const sourcePath = relativeToRepo(resolved?.getSourceFile().getFilePath());
-    const docs = extractJsDoc(resolved);
-    const kind = classifyKind(resolved, name);
-    const placement = classifyExport({ name, kind, sourcePath });
-    const signature = extractSignature(resolved, name);
-    return {
-      name,
-      section: placement.section,
-      kind,
-      page: placement.page,
-      pageRole: placement.role,
-      sourcePath,
-      jsDoc: docs.jsDoc,
-      deprecated: deprecated ?? docs.deprecated,
-      signature,
-      classificationRule: placement.rule,
-      classificationConfidence: placement.confidence,
-      classificationReason: placement.reason,
-    };
+function headingAnchor(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{Letter}\p{Number}\s_-]/gu, "")
+    .replace(/\s+/g, "-");
+}
+
+function apiReferenceHref(item: Pick<ExportInfo, "section" | "page" | "name">) {
+  return `/docs/api-reference/${item.section}/${item.page}#${headingAnchor(item.name)}`;
+}
+
+function cleanLinkTarget(target: string): string {
+  return target.trim().replace(/^`|`$/g, "").replace(/\(\)$/, "");
+}
+
+function createApiReferenceLinkResolver(items: ApiReferenceLinkItem[]) {
+  const itemByName = new Map(items.map((item) => [item.name, item]));
+  return (target: string): string | undefined => {
+    const name = cleanLinkTarget(target);
+    const manualHref = MANUAL_API_REFERENCE_LINKS.get(name);
+    if (manualHref) return manualHref;
+
+    const item = itemByName.get(name);
+    return item ? apiReferenceHref(item) : undefined;
+  };
+}
+
+function classifyExportInputs(
+  inputs: DiscoveredExportInput[],
+): ClassifiedExportInput[] {
+  return inputs.map((input) => {
+    const sourcePath = relativeToRepo(
+      input.resolved?.getSourceFile().getFilePath(),
+    );
+    const kind = classifyKind(input.resolved, input.name);
+    const placement = classifyExport({ name: input.name, kind, sourcePath });
+    return { ...input, sourcePath, kind, placement };
   });
+}
+
+function linkItemsFor(inputs: ClassifiedExportInput[]): ApiReferenceLinkItem[] {
+  return inputs
+    .filter((item) => item.placement.role !== "supporting-type")
+    .map((item) => ({
+      name: item.name,
+      section: item.placement.section,
+      page: item.placement.page,
+    }));
+}
+
+let reactApiInputs: ClassifiedExportInput[] | undefined;
+let reactApiLinkItems: ApiReferenceLinkItem[] | undefined;
+
+function getReactApiInputs(): ClassifiedExportInput[] {
+  reactApiInputs ??= classifyExportInputs(collectExportInputs(REACT_INDEX));
+  return reactApiInputs;
+}
+
+function getReactApiLinkItems(): ApiReferenceLinkItem[] {
+  reactApiLinkItems ??= linkItemsFor(getReactApiInputs());
+  return reactApiLinkItems;
+}
+
+function buildExportInfo(
+  {
+    name,
+    resolved,
+    deprecated,
+    sourcePath,
+    kind,
+    placement,
+  }: ClassifiedExportInput,
+  linkResolver: (target: string) => string | undefined,
+  overrides: Partial<
+    Pick<
+      ExportInfo,
+      | "section"
+      | "page"
+      | "pageRole"
+      | "classificationRule"
+      | "classificationConfidence"
+      | "classificationReason"
+    >
+  > = {},
+): ExportInfo {
+  const docs = extractJsDoc(resolved, { linkResolver });
+  const signature = extractSignature(resolved, name);
+  const resolvedDeprecated = deprecated
+    ? renderJsDocLinks(deprecated, `${name} export @deprecated`, {
+        linkResolver,
+      })
+    : docs.deprecated;
+  return {
+    name,
+    section: overrides.section ?? placement.section,
+    kind,
+    page: overrides.page ?? placement.page,
+    pageRole: overrides.pageRole ?? placement.role,
+    sourcePath,
+    jsDoc: docs.jsDoc,
+    deprecated: resolvedDeprecated,
+    signature,
+    classificationRule: overrides.classificationRule ?? placement.rule,
+    classificationConfidence:
+      overrides.classificationConfidence ?? placement.confidence,
+    classificationReason: overrides.classificationReason ?? placement.reason,
+    jsDocLinkResolver: linkResolver,
+  };
+}
+
+export function discoverExports(): ExportInfo[] {
+  const inputs = getReactApiInputs();
+  const linkResolver = createApiReferenceLinkResolver(getReactApiLinkItems());
+  return inputs.map((input) => buildExportInfo(input, linkResolver));
 }
 
 export function discoverIntegrationExports(
   entryPath: string,
   page: string,
 ): ExportInfo[] {
-  return collectExports(entryPath, ({ name, resolved, deprecated }) => {
-    const sourcePath = relativeToRepo(resolved?.getSourceFile().getFilePath());
-    const kind = classifyKind(resolved, name);
-    if (kind === "interface" || kind === "type") return undefined;
-    const docs = extractJsDoc(resolved);
-    const signature = extractSignature(resolved, name);
-    return {
-      name,
+  const inputs = classifyExportInputs(collectExportInputs(entryPath)).filter(
+    ({ kind }) => kind !== "interface" && kind !== "type",
+  );
+  const linkResolver = createApiReferenceLinkResolver([
+    ...getReactApiLinkItems(),
+    ...linkItemsFor(inputs),
+  ]);
+
+  return inputs.map((input) =>
+    buildExportInfo(input, linkResolver, {
       section: "integrations",
-      kind,
       page,
       pageRole: "primary",
-      sourcePath,
-      jsDoc: docs.jsDoc,
-      deprecated: deprecated ?? docs.deprecated,
-      signature,
       classificationRule: "integration:package",
       classificationConfidence: "strong",
       classificationReason: "package-level integration export",
-    };
-  });
+    }),
+  );
 }

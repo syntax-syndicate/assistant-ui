@@ -197,18 +197,122 @@ function classMemberPrefix(node: TsNode): string {
 
 // ── JSDoc layer (single source of truth) ───────────────────────────────────
 
-export function getJsDocCommentText(doc: JSDoc): string | undefined {
-  const text = doc.getCommentText();
+const warnedUnresolvedJsDocLinks = new Set<string>();
+
+type JsDocLinkResolver = (target: string) => string | undefined;
+
+export type JsDocRenderOptions = {
+  linkResolver?: JsDocLinkResolver;
+};
+
+function isExternalLinkTarget(target: string): boolean {
+  return /^(https?:|mailto:)/.test(target);
+}
+
+function parseJsDocLinkContent(content: string): {
+  target: string;
+  label: string;
+} {
+  const trimmed = content.trim();
+  const pipeIndex = trimmed.indexOf("|");
+  if (pipeIndex !== -1) {
+    const target = trimmed.slice(0, pipeIndex).trim();
+    const label = trimmed.slice(pipeIndex + 1).trim();
+    return { target, label: label || target };
+  }
+
+  const match = trimmed.match(/^(\S+)(?:\s+([\s\S]+))?$/);
+  const target = match?.[1]?.trim() ?? trimmed;
+  const label = match?.[2]?.trim() || target;
+  return { target, label };
+}
+
+function warnUnresolvedJsDocLink(target: string, source: string): void {
+  const key = `${source}:${target}`;
+  if (warnedUnresolvedJsDocLinks.has(key)) return;
+  warnedUnresolvedJsDocLinks.add(key);
+  console.warn(`Warning: unresolved JSDoc link "${target}" in ${source}`);
+}
+
+function renderJsDocLinkTag(
+  content: string,
+  source: string,
+  { linkResolver }: JsDocRenderOptions = {},
+): string {
+  const { target, label } = parseJsDocLinkContent(content);
+  const isExternal = isExternalLinkTarget(target);
+  const href = isExternal ? target : linkResolver?.(target);
+  if (!href) {
+    if (!isExternal) warnUnresolvedJsDocLink(target, source);
+    return label;
+  }
+  const labelText = label.replaceAll("[", "\\[").replaceAll("]", "\\]");
+  return `[${labelText}](${href.replaceAll(")", "%29")})`;
+}
+
+export function renderJsDocLinks(
+  text: string,
+  source: string,
+  options?: JsDocRenderOptions,
+): string {
+  return text.replace(/\{@link\s+([^}]+)\}/g, (_, content: string) =>
+    renderJsDocLinkTag(content, source, options),
+  );
+}
+
+function cleanJsDocTagText(text: string | undefined): string | undefined {
+  return text
+    ?.replace(/\n\s*\*\s?/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function deprecatedTagParts(doc: JSDoc | undefined): {
+  deprecated?: string;
+  trailingDescription?: string;
+} {
+  const tag = doc?.getTags().find((tag) => tag.getTagName() === "deprecated");
+  const cleaned = cleanJsDocTagText(tag?.getCommentText());
+  if (!cleaned) return {};
+
+  const [deprecated, ...rest] = cleaned.split(/\n\s*\n/);
+  const trailingDescription = rest.join("\n\n").trim();
+  return {
+    deprecated: deprecated?.trim() || undefined,
+    trailingDescription: trailingDescription || undefined,
+  };
+}
+
+function jsDocSourceLabel(node: TsNode | undefined): string {
+  if (!node) return "unknown source";
+  const filePath = path.relative(REPO_ROOT, node.getSourceFile().getFilePath());
+  let name: string | undefined;
+  if (
+    Node.isClassDeclaration(node) ||
+    Node.isFunctionDeclaration(node) ||
+    Node.isInterfaceDeclaration(node) ||
+    Node.isMethodDeclaration(node) ||
+    Node.isParameterDeclaration(node) ||
+    Node.isPropertyDeclaration(node) ||
+    Node.isPropertySignature(node) ||
+    Node.isTypeAliasDeclaration(node) ||
+    Node.isVariableDeclaration(node)
+  ) {
+    name = node.getName();
+  }
+  return name ? `${name} (${filePath})` : filePath;
+}
+
+export function getJsDocCommentText(
+  doc: JSDoc,
+  source = "unknown source",
+  options?: JsDocRenderOptions,
+): string | undefined {
+  const text =
+    doc.getCommentText() ?? deprecatedTagParts(doc).trailingDescription;
   if (!text) return undefined;
 
-  const cleaned = text
-    // {@link Target Label} → "Label", {@link Target} → "Target".
-    // (The previous primitive-docs implementation produced "$2$1 ", which
-    // duplicated the link target after the label; this is the corrected form.)
-    .replace(
-      /\{@link\s+([^}\s]+)(?:\s+([^}]+))?\}/g,
-      (_, link, label) => label?.trim() || link,
-    )
+  const cleaned = renderJsDocLinks(text, source, options)
     .replace(/\s+([.,;:])/g, "$1")
     .trim();
 
@@ -218,13 +322,17 @@ export function getJsDocCommentText(doc: JSDoc): string | undefined {
 export function jsDocTag(
   doc: JSDoc | undefined,
   name: string,
+  source = "unknown source",
+  options?: JsDocRenderOptions,
 ): string | undefined {
-  return doc
-    ?.getTags()
-    .find((tag) => tag.getTagName() === name)
-    ?.getComment()
-    ?.toString()
-    .trim();
+  const tag = doc?.getTags().find((tag) => tag.getTagName() === name);
+  const tagText =
+    name === "deprecated"
+      ? deprecatedTagParts(doc).deprecated
+      : cleanJsDocTagText(tag?.getCommentText());
+  return tagText
+    ? renderJsDocLinks(tagText, `${source} @${name}`, options)
+    : undefined;
 }
 
 function getJsDocs(node: TsNode | undefined): JSDoc[] {
@@ -244,14 +352,18 @@ function getJsDocs(node: TsNode | undefined): JSDoc[] {
   return [];
 }
 
-export function extractJsDoc(node: TsNode | undefined): {
+export function extractJsDoc(
+  node: TsNode | undefined,
+  options?: JsDocRenderOptions,
+): {
   jsDoc?: string;
   deprecated?: string;
 } {
   const doc = getJsDocs(node)[0];
+  const source = jsDocSourceLabel(node);
   return {
-    jsDoc: doc ? getJsDocCommentText(doc) : undefined,
-    deprecated: jsDocTag(doc, "deprecated"),
+    jsDoc: doc ? getJsDocCommentText(doc, source, options) : undefined,
+    deprecated: jsDocTag(doc, "deprecated", source, options),
   };
 }
 
@@ -261,7 +373,10 @@ function hasJsDocs(node: TsNode): node is TsNode & JSDocableNode {
   );
 }
 
-function propertyJsDocMeta(node: TsNode | undefined): {
+function propertyJsDocMeta(
+  node: TsNode | undefined,
+  options?: JsDocRenderOptions,
+): {
   description?: string;
   default?: string;
   deprecated?: string;
@@ -269,14 +384,18 @@ function propertyJsDocMeta(node: TsNode | undefined): {
   if (!node || !hasJsDocs(node)) return {};
   const doc = node.getJsDocs()[0];
   if (!doc) return {};
+  const source = jsDocSourceLabel(node);
   return {
-    description: getJsDocCommentText(doc),
-    default: jsDocTag(doc, "default"),
-    deprecated: jsDocTag(doc, "deprecated"),
+    description: getJsDocCommentText(doc, source, options),
+    default: jsDocTag(doc, "default", source, options),
+    deprecated: jsDocTag(doc, "deprecated", source, options),
   };
 }
 
-function propertyDeclarationsJsDocMeta(declarations: TsNode[]): {
+function propertyDeclarationsJsDocMeta(
+  declarations: TsNode[],
+  options?: JsDocRenderOptions,
+): {
   description?: string;
   default?: string;
   deprecated?: string;
@@ -286,7 +405,7 @@ function propertyDeclarationsJsDocMeta(declarations: TsNode[]): {
     default?: string;
     deprecated?: string;
   }>((meta, declaration) => {
-    const declarationMeta = propertyJsDocMeta(declaration);
+    const declarationMeta = propertyJsDocMeta(declaration, options);
     return {
       description: meta.description ?? declarationMeta.description,
       default: meta.default ?? declarationMeta.default,
@@ -623,9 +742,16 @@ function processTypeChildren(
   typeName: string,
   location: TsNode,
   depth: number,
+  options?: JsDocRenderOptions,
 ): PropModel["children"] | undefined {
   if (depth >= 3) return undefined;
-  const childModel = processTypeProperties(type, typeName, location, depth + 1);
+  const childModel = processTypeProperties(
+    type,
+    typeName,
+    location,
+    depth + 1,
+    options,
+  );
   if (!childModel || childModel.length === 0) return undefined;
   return [{ typeName, props: childModel }];
 }
@@ -635,6 +761,7 @@ function parameterFromProperty(
   location: TsNode,
   depth: number,
   ownerTypeName: string,
+  options?: JsDocRenderOptions,
 ): PropModel | undefined {
   const name = prop.getName();
   if (name.startsWith("__")) return undefined;
@@ -678,7 +805,13 @@ function parameterFromProperty(
     propertyTypePath(ownerTypeName, name),
   );
   const children = shouldExpandChildType(propType, rawType)
-    ? processTypeChildren(propType, childTypeName, decl ?? location, depth)
+    ? processTypeChildren(
+        propType,
+        childTypeName,
+        decl ?? location,
+        depth,
+        options,
+      )
     : undefined;
 
   let required: boolean;
@@ -694,7 +827,7 @@ function parameterFromProperty(
     required = !prop.isOptional();
   }
 
-  const jsDoc = propertyDeclarationsJsDocMeta(declarations);
+  const jsDoc = propertyDeclarationsJsDocMeta(declarations, options);
   const inheritedFrom = inheritanceForProperty(prop);
 
   const model: PropModel = {
@@ -717,9 +850,12 @@ function processTypeProperties(
   typeName: string,
   location: TsNode,
   depth = 0,
+  options?: JsDocRenderOptions,
 ): PropModel[] | undefined {
   const properties = documentableProperties(type)
-    .map((prop) => parameterFromProperty(prop, location, depth, typeName))
+    .map((prop) =>
+      parameterFromProperty(prop, location, depth, typeName, options),
+    )
     .filter((param): param is PropModel => Boolean(param));
   if (properties.length === 0) return undefined;
   return properties;
@@ -729,6 +865,7 @@ function parameterFromSignatureParameter(
   parameter: TsMorphSymbol,
   location: TsNode,
   depth: number,
+  options?: JsDocRenderOptions,
 ): PropModel | undefined {
   const decl = parameter.getDeclarations()[0];
   const parameterType = decl
@@ -756,7 +893,7 @@ function parameterFromSignatureParameter(
       !decl.isRestParameter();
   }
 
-  const jsDoc = propertyJsDocMeta(decl);
+  const jsDoc = propertyJsDocMeta(decl, options);
   const model: PropModel = {
     name,
     rawType,
@@ -773,6 +910,7 @@ function parameterFromSignatureParameter(
       typeDisplayName(parameterType, declaredType),
       decl ?? location,
       depth,
+      options,
     );
   }
 
@@ -784,19 +922,27 @@ function parameterFromSignatureParameter(
 export function processTypeOrInterface(
   declaration: InterfaceDeclaration | TypeAliasDeclaration,
   typeName: string,
+  options?: JsDocRenderOptions,
 ): PropModel[] | undefined {
-  return processTypeProperties(declaration.getType(), typeName, declaration);
+  return processTypeProperties(
+    declaration.getType(),
+    typeName,
+    declaration,
+    0,
+    options,
+  );
 }
 
 function processCallableDeclaration(
   declaration: TsNode,
+  options?: JsDocRenderOptions,
 ): PropModel[] | undefined {
   const signature = declaration.getType().getCallSignatures()[0];
   if (!signature) return undefined;
   const parameters = signature
     .getParameters()
     .map((parameter) =>
-      parameterFromSignatureParameter(parameter, declaration, 0),
+      parameterFromSignatureParameter(parameter, declaration, 0, options),
     )
     .filter((param): param is PropModel => Boolean(param));
   if (parameters.length === 0) return undefined;
@@ -816,10 +962,17 @@ function getComponentPropsType(declaration: TsNode): Type | undefined {
 export function processComponentDeclaration(
   declaration: TsNode,
   typeName: string,
+  options?: JsDocRenderOptions,
 ): PropModel[] | undefined {
   const propsType = getComponentPropsType(declaration);
   if (!propsType) return undefined;
-  return processTypeProperties(propsType, `${typeName} props`, declaration);
+  return processTypeProperties(
+    propsType,
+    `${typeName} props`,
+    declaration,
+    0,
+    options,
+  );
 }
 
 function classExtractedShape(
@@ -876,29 +1029,37 @@ export function extractExportShape(
   const declaration = chooseDeclaration(
     sourceFile.getExportedDeclarations().get(item.name) ?? [],
   );
-  return shapeForDeclaration(declaration, item.name, item.kind);
+  return shapeForDeclaration(
+    declaration,
+    item.name,
+    item.kind,
+    item.jsDocLinkResolver
+      ? { linkResolver: item.jsDocLinkResolver }
+      : undefined,
+  );
 }
 
 function shapeForDeclaration(
   declaration: TsNode | undefined,
   name: string,
   exportKind: ExportInfo["kind"],
+  options?: JsDocRenderOptions,
 ): ExtractedShape | undefined {
   if (!declaration) return undefined;
   if (Node.isInterfaceDeclaration(declaration)) {
-    const params = processTypeOrInterface(declaration, name);
+    const params = processTypeOrInterface(declaration, name, options);
     return params ? { kind: "interface", name, parameters: params } : undefined;
   }
   if (Node.isTypeAliasDeclaration(declaration)) {
-    const params = processTypeOrInterface(declaration, name);
+    const params = processTypeOrInterface(declaration, name, options);
     return params ? { kind: "type", name, parameters: params } : undefined;
   }
   if (exportKind === "component") {
-    const params = processComponentDeclaration(declaration, name);
+    const params = processComponentDeclaration(declaration, name, options);
     return params ? { kind: "component", name, parameters: params } : undefined;
   }
   if (exportKind === "function") {
-    const params = processCallableDeclaration(declaration);
+    const params = processCallableDeclaration(declaration, options);
     return params ? { kind: "function", name, parameters: params } : undefined;
   }
   // Match legacy: only attempt class extraction here, no callable fallback for
@@ -912,6 +1073,7 @@ function shapeForDeclaration(
  *  the supporting types referenced by a primary export. */
 export function extractSupportingTypeShapes(
   filePath: string,
+  options?: JsDocRenderOptions,
 ): Map<string, ExtractedShape> {
   const project = getProject();
   const sourceFile =
@@ -924,7 +1086,7 @@ export function extractSupportingTypeShapes(
         Node.isInterfaceDeclaration(declaration) ||
         Node.isTypeAliasDeclaration(declaration)
       ) {
-        const params = processTypeOrInterface(declaration, name);
+        const params = processTypeOrInterface(declaration, name, options);
         if (params) {
           result.set(name, {
             kind: Node.isInterfaceDeclaration(declaration)
