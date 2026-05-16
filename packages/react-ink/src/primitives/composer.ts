@@ -35,3 +35,4 @@ export {
   type ComposerQuoteDismissProps as QuoteDismissProps,
 } from "./composer/ComposerQuoteDismiss";
 export { ComposerIf as If } from "./composer/ComposerIf";
+export { ComposerQueue as Queue } from "./composer/ComposerQueue";
