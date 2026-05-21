@@ -54,15 +54,15 @@ export class RunAggregator {
     { buffer: string; touched: boolean }
   >();
   private activeTextMessageId: string | undefined;
-  private reasoningBuffer = "";
-  private reasoningActive = false;
+  private readonly reasoningParts = new Map<string, string>(); // key → buffer
+  private activeReasoningKey: string | undefined;
+  private reasoningPartCounter = 0;
   private readonly toolCalls = new Map<string, ToolCallState>();
   private readonly partOrder: (
     | { kind: "text"; key: string }
-    | { kind: "reasoning" }
+    | { kind: "reasoning"; key: string }
     | { kind: "tool-call"; toolCallId: string }
   )[] = [];
-  private hasReasoningPart = false;
   private textPartCounter = 0;
   private serverMessageIdReported = false;
 
@@ -81,11 +81,11 @@ export class RunAggregator {
     switch (event.type) {
       case "RUN_STARTED": {
         this.clearTextParts();
-        this.reasoningBuffer = "";
-        this.reasoningActive = false;
+        this.reasoningParts.clear();
+        this.activeReasoningKey = undefined;
+        this.reasoningPartCounter = 0;
         this.toolCalls.clear();
         this.partOrder.length = 0;
-        this.hasReasoningPart = false;
         this.textPartCounter = 0;
         this.activeTextMessageId = undefined;
         this.interrupts = undefined;
@@ -166,11 +166,20 @@ export class RunAggregator {
       case "THINKING_TEXT_MESSAGE_START":
       case "REASONING_START":
       case "REASONING_MESSAGE_START":
-        this.handleReasoningStart();
+        this.handleReasoningStart(
+          "messageId" in event ? event.messageId : undefined,
+        );
         break;
       case "THINKING_TEXT_MESSAGE_CONTENT":
-      case "REASONING_MESSAGE_CONTENT":
         this.handleReasoningContent(event.delta);
+        this.totalChunks++;
+        this.recordFirstToken();
+        break;
+      case "REASONING_MESSAGE_CONTENT":
+        this.handleReasoningContent(
+          event.delta,
+          "messageId" in event ? event.messageId : undefined,
+        );
         this.totalChunks++;
         this.recordFirstToken();
         break;
@@ -292,6 +301,9 @@ export class RunAggregator {
     parentMessageId?: string,
   ) {
     if (!id) return;
+    // A new tool call acts as a boundary: any anonymous text that arrives
+    // after it should be a new part, not appended to the pre-tool text.
+    this.activeTextMessageId = undefined;
     if (
       !this.partOrder.some(
         (part) => part.kind === "tool-call" && part.toolCallId === id,
@@ -376,14 +388,11 @@ export class RunAggregator {
 
     for (const part of this.partOrder) {
       if (part.kind === "reasoning") {
-        if (
-          this.showThinking &&
-          (this.reasoningActive || this.reasoningBuffer.length > 0)
-        ) {
-          snapshot.push({
-            type: "reasoning",
-            text: this.reasoningBuffer,
-          } as const);
+        if (this.showThinking) {
+          const buffer = this.reasoningParts.get(part.key) ?? "";
+          if (buffer.length > 0 || this.activeReasoningKey === part.key) {
+            snapshot.push({ type: "reasoning", text: buffer } as const);
+          }
         }
         continue;
       }
@@ -476,34 +485,35 @@ export class RunAggregator {
     };
   }
 
-  private handleReasoningStart(): void {
+  private handleReasoningStart(messageId?: string): void {
     if (!this.showThinking) return;
-    this.reasoningActive = true;
-    this.ensureReasoningPart();
+    // A reasoning block acts as a boundary: anonymous text arriving after it
+    // should be a new part, not appended to any pre-reasoning text.
+    this.activeTextMessageId = undefined;
+    const key = messageId ?? `__auto-reasoning-${++this.reasoningPartCounter}`;
+    if (!this.reasoningParts.has(key)) {
+      this.reasoningParts.set(key, "");
+      this.partOrder.push({ kind: "reasoning", key });
+    }
+    this.activeReasoningKey = key;
     this.emit();
   }
 
-  private handleReasoningContent(delta: string): void {
+  private handleReasoningContent(delta: string, messageId?: string): void {
     if (!this.showThinking || !delta) return;
-    this.reasoningBuffer += delta;
-    this.ensureReasoningPart();
+    if (!this.activeReasoningKey) {
+      // Content arrived without a preceding START — create the slot lazily.
+      this.handleReasoningStart(messageId);
+    }
+    const key = this.activeReasoningKey;
+    if (!key) return;
+    this.reasoningParts.set(key, (this.reasoningParts.get(key) ?? "") + delta);
     this.emit();
   }
 
   private handleReasoningEnd(): void {
     if (!this.showThinking) return;
+    this.activeReasoningKey = undefined;
     this.emit();
-  }
-
-  private ensureReasoningPart(): void {
-    if (this.hasReasoningPart) return;
-    // ensure reasoning appears before the first text segment if possible
-    const textIndex = this.partOrder.findIndex((part) => part.kind === "text");
-    if (textIndex === -1) {
-      this.partOrder.push({ kind: "reasoning" });
-    } else {
-      this.partOrder.splice(textIndex, 0, { kind: "reasoning" });
-    }
-    this.hasReasoningPart = true;
   }
 }
