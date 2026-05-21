@@ -5,7 +5,6 @@ import {
   resource,
   tapMemo,
   tapResources,
-  tapEffectEvent,
   tapEffect,
   tapRef,
   tapResource,
@@ -19,7 +18,7 @@ import type {
   ClientElement,
   ClientMeta,
 } from "./types/client";
-import type { Derived, DerivedElement } from "./Derived";
+import type { DerivedElement } from "./Derived";
 import {
   useAssistantContextValue,
   DefaultAssistantClient,
@@ -209,24 +208,6 @@ const RootClientsAccessorsResource = resource(
   },
 );
 
-type MetaMemo<K extends ClientNames> = {
-  meta?: ClientMeta<K>;
-  dep?: unknown;
-};
-
-const getMeta = <K extends ClientNames>(
-  props: Derived.Props<K>,
-  clientRef: { parent: AssistantClient; current: AssistantClient | null },
-  memo: MetaMemo<K>,
-): ClientMeta<K> => {
-  if ("source" in props && "query" in props) return props;
-  if (memo.dep === props) return memo.meta!;
-  const meta = props.getMeta(clientRef.current!);
-  memo.meta = meta;
-  memo.dep = props;
-  return meta;
-};
-
 const DerivedClientAccessorResource = resource(
   <K extends ClientNames>({
     element,
@@ -237,17 +218,24 @@ const DerivedClientAccessorResource = resource(
     clientRef: { parent: AssistantClient; current: AssistantClient | null };
     name: K;
   }) => {
-    const get = tapEffectEvent(() => element.props);
+    // Track the latest props on a ref updated in render. The fiber is
+    // keyed on the scope's meta by DerivedClientsAccessorsResource, so
+    // source/query are stable for this fiber's lifetime and the only
+    // value that can change between renders for the same fiber is the
+    // identity of the `get` closure. Routing reads through the ref
+    // avoids the one-commit lag that the previous `tapEffectEvent`
+    // path imposed.
+    const propsRef = tapRef(element.props);
+    propsRef.current = element.props;
 
     return tapMemo(() => {
-      const clientFunction = () => get().get(clientRef.current!);
-      const metaMemo = {};
+      const clientFunction = () => propsRef.current.get(clientRef.current!);
       Object.defineProperties(clientFunction, {
         source: {
-          get: () => getMeta(get(), clientRef, metaMemo).source,
+          value: propsRef.current.source,
         },
         query: {
-          get: () => getMeta(get(), clientRef, metaMemo).query,
+          value: propsRef.current.query,
         },
         name: {
           value: name,
@@ -258,6 +246,26 @@ const DerivedClientAccessorResource = resource(
     }, [clientRef, name]);
   },
 );
+
+const serializeMeta = <K extends ClientNames>(
+  name: K,
+  meta: ClientMeta<K>,
+): string => {
+  // Sort top-level keys so {a, b} and {b, a} hash to the same fiber
+  // identity, and guard JSON.stringify against unusual values (BigInt,
+  // circular refs) so render never throws here.
+  let queryKey: string;
+  try {
+    const sorted: Record<string, unknown> = {};
+    for (const k of Object.keys(meta.query as object).sort()) {
+      sorted[k] = (meta.query as Record<string, unknown>)[k];
+    }
+    queryKey = JSON.stringify(sorted);
+  } catch {
+    queryKey = String(meta.query);
+  }
+  return `${name}::${meta.source}::${queryKey}`;
+};
 
 const DerivedClientsAccessorsResource = resource(
   ({
@@ -270,16 +278,18 @@ const DerivedClientsAccessorsResource = resource(
     return tapShallowMemoArray(
       tapResources(
         () =>
-          Object.keys(clients).map((key) =>
-            withKey(
-              key,
+          Object.keys(clients).map((key) => {
+            const name = key as keyof typeof clients;
+            const element = clients[name]!;
+            return withKey(
+              serializeMeta(name, element.props),
               DerivedClientAccessorResource({
-                element: clients[key as keyof typeof clients]!,
+                element,
                 clientRef,
-                name: key as keyof typeof clients,
+                name,
               }),
-            ),
-          ),
+            );
+          }),
         [clients, clientRef],
       ),
     );
