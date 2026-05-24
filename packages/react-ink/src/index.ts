@@ -112,6 +112,14 @@ export {
   type LocalRuntimeOptions,
 } from "./runtimes/useLocalRuntime";
 export { useRemoteThreadListRuntime } from "./runtimes/useRemoteThreadListRuntime";
+export {
+  createFileStorageAdapter,
+  type CreateFileStorageAdapterOptions,
+} from "./adapters/FileStorage";
+export {
+  createSimpleTitleAdapter,
+  type TitleGenerationAdapter,
+} from "@assistant-ui/core/react";
 
 // Primitives
 export * as ThreadPrimitive from "./primitives/thread";
