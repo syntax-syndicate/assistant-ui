@@ -2,7 +2,11 @@
 
 import { useChat, type UIMessage } from "@ai-sdk/react";
 import type { AssistantCloud } from "assistant-cloud";
-import type { AssistantRuntime } from "@assistant-ui/core";
+import {
+  pickExternalStoreSharedOptions,
+  type AssistantRuntime,
+  type ExternalStoreSharedOptions,
+} from "@assistant-ui/core";
 import {
   useCloudThreadListAdapter,
   useRemoteThreadListRuntime,
@@ -19,16 +23,13 @@ import type { AssistantChatResumableOptions } from "../resumable";
 import { useEffect, useMemo, useRef } from "react";
 
 export type UseChatRuntimeOptions<UI_MESSAGE extends UIMessage = UIMessage> =
-  ChatInit<UI_MESSAGE> & {
-    cloud?: AssistantCloud | undefined;
-    adapters?: AISDKRuntimeAdapter["adapters"] | undefined;
-    toCreateMessage?: CustomToCreateMessageFunction;
-    isDisabled?: AISDKRuntimeAdapter["isDisabled"];
-    isSendDisabled?: AISDKRuntimeAdapter["isSendDisabled"];
-    unstable_capabilities?: AISDKRuntimeAdapter["unstable_capabilities"];
-    onResume?: AISDKRuntimeAdapter["onResume"];
-    suggestions?: AISDKRuntimeAdapter["suggestions"];
-  };
+  ChatInit<UI_MESSAGE> &
+    ExternalStoreSharedOptions & {
+      cloud?: AssistantCloud | undefined;
+      adapters?: AISDKRuntimeAdapter["adapters"] | undefined;
+      toCreateMessage?: CustomToCreateMessageFunction;
+      onResume?: AISDKRuntimeAdapter["onResume"];
+    };
 
 const useDynamicChatTransport = <UI_MESSAGE extends UIMessage = UIMessage>(
   transport: ChatTransport<UI_MESSAGE>,
@@ -75,13 +76,18 @@ const useChatThreadRuntime = <UI_MESSAGE extends UIMessage = UIMessage>(
     adapters,
     transport: transportOptions,
     toCreateMessage,
-    isDisabled,
-    isSendDisabled,
-    unstable_capabilities,
+    isDisabled: _isDisabled,
+    isSendDisabled: _isSendDisabled,
+    unstable_capabilities: _unstable_capabilities,
+    suggestions: _suggestions,
     onResume,
-    suggestions,
     ...chatOptions
   } = options ?? {};
+  // peel guard: any shared key left in `chatOptions` collapses this to `never`
+  true satisfies keyof typeof chatOptions &
+    keyof ExternalStoreSharedOptions extends never
+    ? true
+    : never;
 
   // biome-ignore lint/correctness/useHookAtTopLevel: intentional conditional/nested hook usage
   const transport = useDynamicChatTransport(
@@ -102,12 +108,9 @@ const useChatThreadRuntime = <UI_MESSAGE extends UIMessage = UIMessage>(
   // biome-ignore lint/correctness/useHookAtTopLevel: intentional conditional/nested hook usage
   const runtime = useAISDKRuntime(chat, {
     adapters,
+    ...pickExternalStoreSharedOptions(options ?? {}),
     ...(toCreateMessage && { toCreateMessage }),
     ...(onResume && { onResume }),
-    ...(suggestions && { suggestions }),
-    ...(isDisabled !== undefined && { isDisabled }),
-    ...(isSendDisabled !== undefined && { isSendDisabled }),
-    ...(unstable_capabilities && { unstable_capabilities }),
   });
 
   if (transport instanceof AssistantChatTransport) {
