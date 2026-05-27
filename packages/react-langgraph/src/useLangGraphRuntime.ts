@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   LangChainMessage,
   LangChainToolCall,
@@ -23,14 +23,13 @@ import {
   type FeedbackAdapter,
   type SpeechSynthesisAdapter,
 } from "@assistant-ui/core";
+import type { ToolExecutionStatus } from "@assistant-ui/core";
 import {
-  type ToolExecutionStatus,
   type DataMessagePartComponent,
   useCloudThreadListAdapter,
   useRemoteThreadListRuntime,
   useExternalMessageConverter,
   useExternalStoreRuntime,
-  useToolInvocations,
 } from "@assistant-ui/core/react";
 import { useAui, useAuiState } from "@assistant-ui/store";
 import type { AssistantCloud } from "assistant-cloud";
@@ -503,44 +502,12 @@ const useLangGraphRuntimeImpl = ({
   uiMessagesRef.current = uiMessages;
 
   // biome-ignore lint/correctness/useHookAtTopLevel: intentional conditional/nested hook usage
-  const [runtimeRef] = useState(() => ({
-    get current() {
-      return runtime;
-    },
-  }));
-
-  // biome-ignore lint/correctness/useHookAtTopLevel: intentional conditional/nested hook usage
-  const toolInvocations = useToolInvocations({
-    state: {
-      messages: threadMessages,
-      isRunning: effectiveIsRunning,
-    },
-    getTools: () => runtimeRef.current.thread.getModelContext().tools,
-    onResult: (command) => {
-      if (command.type === "add-tool-result") {
-        void handleSendMessage(
-          [
-            {
-              type: "tool",
-              name: command.toolName,
-              tool_call_id: command.toolCallId,
-              content: JSON.stringify(command.result),
-              artifact: command.artifact,
-              status: command.isError ? "error" : "success",
-            },
-          ],
-          {},
-        );
-      }
-    },
-    setToolStatuses,
-  });
-
-  // biome-ignore lint/correctness/useHookAtTopLevel: intentional conditional/nested hook usage
   const runtime = useExternalStoreRuntime({
     isRunning: effectiveIsRunning,
     isLoading: isLoadingThread,
     messages: threadMessages,
+    unstable_enableToolInvocations: true,
+    setToolStatuses,
     adapters: {
       attachments,
       feedback,
@@ -554,8 +521,6 @@ const useLangGraphRuntimeImpl = ({
       send: handleSendMessage,
     } satisfies LangGraphRuntimeExtras,
     onNew: async (msg) => {
-      await toolInvocations.abort();
-
       const cancellations =
         autoCancelPendingToolCalls !== false
           ? getPendingToolCalls(messages).map(
@@ -608,7 +573,6 @@ const useLangGraphRuntimeImpl = ({
     },
     onEdit: getCheckpointId
       ? async (msg) => {
-          await toolInvocations.abort();
           const truncated = truncateLangChainMessages(
             threadMessagesRef.current,
             msg.parentId,
@@ -633,7 +597,6 @@ const useLangGraphRuntimeImpl = ({
       : undefined,
     onReload: getCheckpointId
       ? async (parentId, config) => {
-          await toolInvocations.abort();
           const truncated = truncateLangChainMessages(
             threadMessagesRef.current,
             parentId,
@@ -655,8 +618,10 @@ const useLangGraphRuntimeImpl = ({
       : undefined,
     onCancel: unstable_allowCancellation
       ? async () => {
+          // The embedded tracker's abort() runs before this callback via
+          // the runtime's cancelRun; no need to call abortToolInvocations
+          // here as well.
           cancel();
-          await toolInvocations.abort();
         }
       : undefined,
   });

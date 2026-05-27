@@ -1,3 +1,4 @@
+/// <reference types="@assistant-ui/core/store" />
 "use client";
 
 import { useMemo, useRef, useState } from "react";
@@ -7,14 +8,13 @@ import type {
   FeedbackAdapter,
   RemoteThreadListAdapter,
   SpeechSynthesisAdapter,
+  ToolExecutionStatus,
 } from "@assistant-ui/core";
 import {
   useCloudThreadListAdapter,
   useExternalStoreRuntime,
   useExternalMessageConverter,
   useRemoteThreadListRuntime,
-  useToolInvocations,
-  type ToolExecutionStatus,
 } from "@assistant-ui/core/react";
 import { useAui, useAuiState } from "@assistant-ui/store";
 import type { AssistantCloud } from "assistant-cloud";
@@ -199,43 +199,8 @@ const useStreamThreadRuntime = (
   });
 
   // biome-ignore lint/correctness/useHookAtTopLevel: intentional conditional/nested hook usage
-  const [runtimeRef] = useState(() => ({
-    get current() {
-      return runtime;
-    },
-  }));
-
-  // biome-ignore lint/correctness/useHookAtTopLevel: intentional conditional/nested hook usage
   const streamRef = useRef(stream);
   streamRef.current = stream;
-
-  // biome-ignore lint/correctness/useHookAtTopLevel: intentional conditional/nested hook usage
-  const toolInvocations = useToolInvocations({
-    state: {
-      messages: threadMessages,
-      isRunning: effectiveIsRunning,
-    },
-    getTools: () => runtimeRef.current.thread.getModelContext().tools,
-    onResult: (command) => {
-      if (command.type === "add-tool-result") {
-        void streamRef.current.submit(
-          {
-            [messagesKey]: [
-              {
-                type: "tool",
-                name: command.toolName,
-                tool_call_id: command.toolCallId,
-                content: JSON.stringify(command.result),
-                status: command.isError ? "error" : "success",
-              },
-            ],
-          },
-          {},
-        );
-      }
-    },
-    setToolStatuses,
-  });
 
   // biome-ignore lint/correctness/useHookAtTopLevel: intentional conditional/nested hook usage
   const extras = useMemo(
@@ -262,8 +227,9 @@ const useStreamThreadRuntime = (
     messages: threadMessages,
     adapters,
     extras,
+    unstable_enableToolInvocations: true,
+    setToolStatuses,
     onNew: async (msg) => {
-      await toolInvocations.abort();
       const content = getMessageContent(msg);
       const cancellations =
         autoCancelPendingToolCalls !== false
@@ -304,8 +270,9 @@ const useStreamThreadRuntime = (
     onCancel:
       unstable_allowCancellation !== false
         ? async () => {
+            // The embedded tracker's abort() runs before this callback via
+            // the runtime's cancelRun.
             await stream.stop();
-            await toolInvocations.abort();
           }
         : undefined,
   });

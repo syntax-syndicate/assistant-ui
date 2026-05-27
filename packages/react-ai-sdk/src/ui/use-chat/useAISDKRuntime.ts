@@ -1,14 +1,13 @@
 "use client";
 
-import { useState, useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { UIMessage, useChat, CreateUIMessage } from "@ai-sdk/react";
 import { isToolUIPart, generateId } from "ai";
 import {
   useExternalStoreRuntime,
   useRuntimeAdapters,
-  useToolInvocations,
-  type ToolExecutionStatus,
 } from "@assistant-ui/core/react";
+import type { ToolExecutionStatus } from "@assistant-ui/core";
 import type {
   ExternalStoreAdapter,
   ThreadHistoryAdapter,
@@ -144,29 +143,6 @@ export const useAISDKRuntime = <UI_MESSAGE extends UIMessage = UIMessage>(
     },
   }));
 
-  const toolInvocations = useToolInvocations({
-    state: {
-      messages,
-      isRunning,
-    },
-    getTools: () => runtimeRef.current.thread.getModelContext().tools,
-    onResult: (command) => {
-      if (command.type === "add-tool-result") {
-        const output =
-          command.modelContent !== undefined
-            ? wrapModelContentEnvelope(command.result, command.modelContent)
-            : command.result;
-        chatHelpers.addToolResult({
-          tool: command.toolName,
-          toolCallId: command.toolCallId,
-          output,
-          options: { metadata: lastRunConfigRef.current },
-        });
-      }
-    },
-    setToolStatuses,
-  });
-
   const isLoading = useExternalHistory(
     runtimeRef,
     adapters?.history ?? contextAdapters?.history,
@@ -185,7 +161,9 @@ export const useAISDKRuntime = <UI_MESSAGE extends UIMessage = UIMessage>(
   const completePendingToolCalls = async () => {
     if (!cancelPendingToolCallsOnSend) return;
 
-    await toolInvocations.abort();
+    // The runtime auto-aborts in-flight tool invocations when a new run
+    // is dispatched (append() / startRun()). All we need to do here is
+    // mark any tool without a result as cancelled in the UI message list.
 
     // Mark any tool without a result as cancelled (uses setMessages to avoid triggering sendAutomaticallyWhen)
     chatHelpers.setMessages((messages) => {
@@ -214,6 +192,8 @@ export const useAISDKRuntime = <UI_MESSAGE extends UIMessage = UIMessage>(
   const runtime = useExternalStoreRuntime({
     isRunning,
     messages,
+    unstable_enableToolInvocations: true,
+    setToolStatuses,
     setMessages: (messages) =>
       chatHelpers.setMessages(
         messages
@@ -277,8 +257,9 @@ export const useAISDKRuntime = <UI_MESSAGE extends UIMessage = UIMessage>(
       runtimeRef.current.thread.import(exportedRepo);
     },
     onCancel: async () => {
+      // The embedded tracker's abort() is invoked by the runtime's
+      // cancelRun before this callback runs.
       chatHelpers.stop();
-      await toolInvocations.abort();
     },
     onNew: async (message) => {
       const createMessage = (
@@ -327,29 +308,39 @@ export const useAISDKRuntime = <UI_MESSAGE extends UIMessage = UIMessage>(
 
       await chatHelpers.regenerate({ metadata: config.runConfig });
     },
-    onAddToolResult: ({ toolCallId, result, isError }) => {
+    onAddToolResult: ({
+      toolCallId,
+      toolName,
+      result,
+      isError,
+      modelContent,
+    }) => {
       const options = { metadata: lastRunConfigRef.current };
       if (isError) {
         chatHelpers.addToolOutput({
           state: "output-error",
-          tool: toolCallId,
+          tool: toolName ?? toolCallId,
           toolCallId,
           errorText:
             typeof result === "string" ? result : JSON.stringify(result),
           options,
         });
       } else {
-        chatHelpers.addToolOutput({
-          state: "output-available",
-          tool: toolCallId,
+        const output =
+          modelContent !== undefined
+            ? wrapModelContentEnvelope(result, modelContent)
+            : result;
+        chatHelpers.addToolResult({
+          tool: toolName,
           toolCallId,
-          output: result,
+          output,
           options,
         });
       }
     },
-    onResumeToolCall: (options) =>
-      toolInvocations.resume(options.toolCallId, options.payload),
+    // onResumeToolCall: the runtime calls the embedded tracker's resume()
+    // automatically before invoking this callback, so no adapter-level
+    // handler is needed.
     onRespondToToolApproval: ({ approvalId, approved, reason }) => {
       void chatHelpers.addToolApprovalResponse({
         id: approvalId,
