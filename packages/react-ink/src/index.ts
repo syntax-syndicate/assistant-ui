@@ -148,6 +148,19 @@ export * as MessagePartPrimitive from "./primitives/messagePart";
 export * as LoadingPrimitive from "./primitives/loading";
 export * as StatusBarPrimitive from "./primitives/statusBar";
 export { DiffView, type DiffViewProps } from "./primitives/diff/DiffView";
+export * as ChecklistPrimitive from "./primitives/checklist";
+export {
+  LiveChecklist,
+  type LiveChecklistProps,
+} from "./primitives/checklist/LiveChecklist";
+export type {
+  ChecklistItemData,
+  ChecklistItemStatus,
+} from "./primitives/checklist/types";
+export {
+  useToolCallChecklist,
+  type UseToolCallChecklistOptions,
+} from "./primitives/checklist/useToolCallChecklist";
 
 // Re-export shared providers from core/react
 export {
