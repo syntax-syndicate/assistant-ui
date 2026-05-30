@@ -1,4 +1,5 @@
 import { createMDX } from "fumadocs-mdx/next";
+import { withAui } from "@assistant-ui/next";
 import type { NextConfig } from "next";
 
 const isDev = process.env.NODE_ENV === "development";
@@ -96,4 +97,4 @@ const config: NextConfig = {
 
 const withMDX = createMDX();
 
-export default withMDX(config);
+export default withAui(withMDX(config));

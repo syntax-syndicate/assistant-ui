@@ -187,6 +187,8 @@ export {
   useInlineRender,
   type Toolkit,
   type ToolDefinition,
+  type ToolkitDeclaration,
+  type ToolkitDeclarationDefinition,
   Tools,
   DataRenderers,
   Interactables,
