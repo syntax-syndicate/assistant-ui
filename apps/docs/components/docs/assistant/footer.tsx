@@ -10,20 +10,54 @@ import { ContextDisplay } from "@assistant-ui/ui/components/assistant-ui/context
 import { useSharedDocsModelSelection } from "./composer";
 import { getContextWindow } from "@/constants/model";
 
-export function AssistantFooter(): ReactNode {
+type AssistantFooterProps = {
+  onNewThread?: () => void;
+  contextWindow?: number;
+  centerContent?: ReactNode;
+};
+
+export function AssistantFooter(props: AssistantFooterProps = {}): ReactNode {
+  if (props.contextWindow !== undefined) {
+    return (
+      <AssistantFooterContent {...props} contextWindow={props.contextWindow} />
+    );
+  }
+
+  return <DefaultAssistantFooter {...props} />;
+}
+
+function DefaultAssistantFooter(props: AssistantFooterProps): ReactNode {
+  const { modelValue } = useSharedDocsModelSelection();
+  return (
+    <AssistantFooterContent
+      {...props}
+      contextWindow={getContextWindow(modelValue)}
+    />
+  );
+}
+
+function AssistantFooterContent({
+  onNewThread,
+  contextWindow,
+  centerContent,
+}: AssistantFooterProps & { contextWindow: number }): ReactNode {
   const aui = useAui();
   const threadId = useAuiState((s) => s.threadListItem.id);
   const messages = useAuiState((s) => s.thread.messages);
   const currentPage = useCurrentPage();
   const pathname = currentPage?.pathname;
-  const { modelValue } = useSharedDocsModelSelection();
-  const contextWindow = getContextWindow(modelValue);
   const lastUsage = useThreadTokenUsage();
   const contextTokens = lastUsage?.totalTokens ?? 0;
   const usagePercent = Math.min((contextTokens / contextWindow) * 100, 100);
 
   return (
-    <div className="flex items-center justify-between px-3 py-1.5">
+    <div
+      className={
+        centerContent
+          ? "grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 py-1.5"
+          : "flex items-center justify-between px-3 py-1.5"
+      }
+    >
       <button
         type="button"
         onClick={() => {
@@ -36,7 +70,11 @@ export function AssistantFooter(): ReactNode {
             ...(pathname ? { pathname } : {}),
             ...(modelName ? { model_name: modelName } : {}),
           });
-          aui.threads().switchToNewThread();
+          if (onNewThread) {
+            onNewThread();
+          } else {
+            aui.threads().switchToNewThread();
+          }
         }}
         className="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors"
       >
@@ -44,10 +82,31 @@ export function AssistantFooter(): ReactNode {
         <span>New thread</span>
       </button>
 
-      <ContextDisplay.Bar
-        modelContextWindow={contextWindow}
-        usage={lastUsage}
-      />
+      {centerContent ? (
+        <>
+          <div className="min-w-0 px-1">{centerContent}</div>
+          <div className="flex justify-end">
+            <AssistantContextBar
+              contextWindow={contextWindow}
+              usage={lastUsage}
+            />
+          </div>
+        </>
+      ) : (
+        <AssistantContextBar contextWindow={contextWindow} usage={lastUsage} />
+      )}
     </div>
+  );
+}
+
+function AssistantContextBar({
+  contextWindow,
+  usage,
+}: {
+  contextWindow: number;
+  usage: ReturnType<typeof useThreadTokenUsage>;
+}): ReactNode {
+  return (
+    <ContextDisplay.Bar modelContextWindow={contextWindow} usage={usage} />
   );
 }
