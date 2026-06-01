@@ -47,13 +47,11 @@ const FOOTER_LINKS: Record<string, FooterLinkItem[]> = {
   Legal: [
     {
       label: "Terms of Service",
-      href: "https://docs.google.com/document/d/1EhtzGCVOFGtDWaRP7uZ4gBpDVzUfuCF23U6ztRunNRo/view",
-      external: true,
+      href: "/terms-of-service",
     },
     {
       label: "Privacy Policy",
-      href: "https://docs.google.com/document/d/1rTuYeC2xJHWB5u42dSyWwp3vBx7Cms5b6sK971wraVY/view",
-      external: true,
+      href: "/privacy-policy",
     },
   ],
 };
