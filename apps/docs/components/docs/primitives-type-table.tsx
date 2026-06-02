@@ -1,11 +1,12 @@
 import { Fragment } from "react";
 import { highlight } from "fumadocs-core/highlight";
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { FC, ReactNode } from "react";
 import {
   TypeTableClient,
   type TypeTableRow,
 } from "./primitives-type-table-client";
+import { DefListLLM } from "./parameters-table";
 import { StatusBadge } from "./status-badge";
 
 type PropDef = {
@@ -148,3 +149,19 @@ export async function PrimitivesTypeTable({
   const rows = await propsToRows(parameters);
   return <TypeTableClient id={type} rows={rows} />;
 }
+
+// Build from PropDef directly, skipping Shiki highlighting (it emitted stray
+// code fences) and the `highlighted*` fields meant for the client table.
+// stripTrailingUndefined drops the `| undefined` the prop extractor leaves on.
+export const PrimitivesTypeTableLLM: FC<{
+  type?: string;
+  parameters: PropDef[];
+}> = ({ parameters }) => {
+  return (
+    <DefListLLM
+      defs={parameters}
+      commonParams={COMMON_PARAMS}
+      normalizeType={stripTrailingUndefined}
+    />
+  );
+};
