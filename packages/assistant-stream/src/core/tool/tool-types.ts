@@ -305,6 +305,37 @@ type HumanTool<
   providerOptions?: ProviderOptions;
 };
 
+export type McpServerConfig =
+  | {
+      /** Connect to an MCP server over Streamable HTTP or server-sent events. */
+      type: "http" | "sse";
+      url: string;
+      headers?: Record<string, string>;
+      redirect?: "follow" | "error";
+    }
+  | {
+      /** Start and connect to a local MCP server over stdio. */
+      type: "stdio";
+      command: string;
+      args?: readonly string[];
+      env?: Record<string, string>;
+      cwd?: string;
+    };
+
+type McpTool = ToolBase<Record<string, unknown>, unknown> & {
+  /** Tools loaded from an MCP server by a server adapter. */
+  type: "mcp";
+  server: McpServerConfig;
+
+  description?: undefined;
+  parameters?: undefined;
+  disabled?: boolean;
+  execute?: undefined;
+  toModelOutput?: undefined;
+  experimental_onSchemaValidationError?: undefined;
+  providerOptions?: undefined;
+};
+
 /**
  * Definition for a tool that can be exposed to the assistant model.
  *
@@ -353,6 +384,7 @@ export type Tool<
   | FrontendTool<TArgs, TResult>
   | BackendTool<TArgs, TResult>
   | HumanTool<TArgs, TResult>
+  | McpTool
   | ToolWithoutType<TArgs, TResult>;
 
 /**
@@ -368,6 +400,7 @@ export type ToolDeclaration<
   | FrontendTool<TArgs, TResult>
   | BackendToolDeclaration<TArgs, TResult>
   | HumanTool<TArgs, TResult>
+  | McpTool
   | ToolWithoutType<TArgs, TResult>;
 
 /**
