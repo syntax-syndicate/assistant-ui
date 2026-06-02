@@ -299,6 +299,35 @@ describe("toToolsJSONSchema", () => {
       expect(result).toHaveProperty("humanTool");
     });
 
+    it("omits schemas for tools with backend parameter defaults", () => {
+      const tools: Record<string, Tool> = {
+        generatedFrontendTool: {
+          type: "frontend",
+          description: "A generated frontend tool",
+          parameters: { type: "object", properties: {} },
+          execute: async () => {},
+          unstable_backendDefault: { parameters: true },
+        },
+        generatedHumanTool: {
+          type: "human",
+          description: "A generated human tool",
+          parameters: { type: "object", properties: {} },
+          unstable_backendDefault: { parameters: true },
+        },
+        olderFrontendTool: {
+          type: "frontend",
+          description: "An older frontend tool",
+          parameters: { type: "object", properties: {} },
+          execute: async () => {},
+        },
+      };
+
+      const result = toToolsJSONSchema(tools);
+      expect(result).not.toHaveProperty("generatedFrontendTool");
+      expect(result).not.toHaveProperty("generatedHumanTool");
+      expect(result).toHaveProperty("olderFrontendTool");
+    });
+
     it("excludes tools without parameters", () => {
       const tools: Record<string, Tool> = {
         withParams: {
@@ -338,6 +367,27 @@ describe("toToolsJSONSchema", () => {
       expect(result).toHaveProperty("tool_a");
       expect(result).not.toHaveProperty("tool_b"); // still excluded due to no parameters
       expect(result).toHaveProperty("tool_c");
+    });
+
+    it("always excludes backend-default parameters with a custom filter", () => {
+      const tools: Record<string, Tool> = {
+        backendDefaultTool: {
+          type: "frontend",
+          parameters: { type: "object", properties: {} },
+          execute: async () => {},
+          unstable_backendDefault: { parameters: true },
+        },
+        normalTool: {
+          parameters: { type: "object", properties: {} },
+        },
+      };
+
+      const result = toToolsJSONSchema(tools, {
+        filter: () => true,
+      });
+
+      expect(result).not.toHaveProperty("backendDefaultTool");
+      expect(result).toHaveProperty("normalTool");
     });
 
     it("custom filter receives name and tool", () => {
