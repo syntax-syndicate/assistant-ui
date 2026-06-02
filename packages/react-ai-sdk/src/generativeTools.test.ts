@@ -75,6 +75,75 @@ describe("generativeTools", () => {
       }),
     ).toThrow(/requires AISDKToolkit/);
   });
+
+  it("converts provider tools without an execute function", () => {
+    const toolSet = generativeTools({
+      toolkit: {
+        web_search: {
+          type: "provider",
+          providerId: "openai.web_search_preview",
+          args: { searchContextSize: "low" },
+        },
+      },
+    });
+
+    expect(toolSet.web_search).toMatchObject({
+      type: "provider",
+      id: "openai.web_search_preview",
+      args: { searchContextSize: "low" },
+    });
+    expect(toolSet.web_search).not.toHaveProperty("inputSchema");
+    expect(toolSet.web_search).not.toHaveProperty("execute");
+  });
+
+  it("forwards provider tool parameters and providerOptions when present", () => {
+    const toolSet = generativeTools({
+      toolkit: {
+        web_search: {
+          type: "provider",
+          providerId: "openai.web_search_preview",
+          args: { searchContextSize: "low" },
+          parameters: {
+            type: "object",
+            properties: {
+              query: { type: "string" },
+            },
+            required: ["query"],
+          },
+          providerOptions: {
+            openai: { rankingOptions: { scoreThreshold: 0.5 } },
+          },
+        },
+      },
+    });
+
+    expect(toolSet.web_search).toMatchObject({
+      type: "provider",
+      id: "openai.web_search_preview",
+      args: { searchContextSize: "low" },
+      providerOptions: {
+        openai: { rankingOptions: { scoreThreshold: 0.5 } },
+      },
+    });
+    expect(toolSet.web_search).toHaveProperty("inputSchema");
+  });
+
+  it("forwards explicit false supportsDeferredResults", () => {
+    const toolSet = generativeTools({
+      toolkit: {
+        web_search: {
+          type: "provider",
+          providerId: "openai.web_search_preview",
+          args: { searchContextSize: "low" },
+          supportsDeferredResults: false,
+        },
+      },
+    });
+
+    expect(toolSet.web_search).toMatchObject({
+      supportsDeferredResults: false,
+    });
+  });
 });
 
 describe("AISDKToolkit", () => {
@@ -218,5 +287,38 @@ describe("AISDKToolkit", () => {
     await expect(toolkit.tools()).rejects.toThrow(
       /MCP tool name collision: "echo"/,
     );
+  });
+
+  it("includes provider tools alongside MCP tools", async () => {
+    mocks.tools.mockResolvedValue({ echo: { inputSchema: {} } });
+    mocks.createMCPClient.mockResolvedValue({
+      tools: mocks.tools,
+      close: mocks.close,
+    });
+
+    const toolkit = new AISDKToolkit({
+      toolkit: {
+        local: {
+          type: "mcp",
+          server: { type: "http", url: "http://localhost:3001/mcp" },
+        },
+        web_search: {
+          type: "provider",
+          providerId: "openai.web_search_preview",
+          args: { searchContextSize: "low" },
+          supportsDeferredResults: false,
+        },
+      },
+    });
+
+    await expect(toolkit.tools()).resolves.toMatchObject({
+      echo: { inputSchema: {} },
+      web_search: {
+        type: "provider",
+        id: "openai.web_search_preview",
+        args: { searchContextSize: "low" },
+        supportsDeferredResults: false,
+      },
+    });
   });
 });
