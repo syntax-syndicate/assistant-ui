@@ -4,8 +4,10 @@ import { injectQuoteContext } from "@assistant-ui/react-ai-sdk";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { validateDocChatInput } from "@/lib/validate-input";
 import { getModel, openai } from "@/lib/ai/provider";
+import { isAiPlaygroundEnabled } from "@/lib/feature-flags";
 import { prismAISDK } from "@aui-x/prism";
 import { withTracing } from "@posthog/ai";
+import { NextResponse } from "next/server";
 import {
   convertToModelMessages,
   pruneMessages,
@@ -244,6 +246,10 @@ Use inline code (\`backticks\`) for:
 `;
 
 export async function POST(req: Request): Promise<Response> {
+  if (!isAiPlaygroundEnabled) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+
   try {
     const rateLimitResponse = await checkRateLimit(req);
     if (rateLimitResponse) return rateLimitResponse;

@@ -1,7 +1,9 @@
 import { checkRateLimit } from "@/lib/rate-limit";
 import { validateGeneralChatInput } from "@/lib/validate-input";
 import { getModel } from "@/lib/ai/provider";
+import { isAiPlaygroundEnabled } from "@/lib/feature-flags";
 import { frontendTools } from "@assistant-ui/react-ai-sdk";
+import { NextResponse } from "next/server";
 import {
   convertToModelMessages,
   pruneMessages,
@@ -135,6 +137,10 @@ When using customCSS, APPEND to any existing customCSS (from current config) rat
 `;
 
 export async function POST(req: Request) {
+  if (!isAiPlaygroundEnabled) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+
   try {
     const rateLimitResponse = await checkRateLimit(req);
     if (rateLimitResponse) return rateLimitResponse;
