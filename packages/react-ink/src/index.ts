@@ -197,6 +197,8 @@ export {
   type ToolkitDefinitionEntry,
   type ToolCallText,
   defineToolkit,
+  stubTool,
+  useAuiToolOverrides,
   hitl,
   hitlTool,
   providerTool,

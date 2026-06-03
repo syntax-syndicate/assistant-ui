@@ -466,6 +466,38 @@ export default defineToolkit({
     expect(server).not.toContain("renderText");
     expect(server).toContain('type: "frontend"');
   });
+
+  it("infers `frontend` from execute: stubTool() and strips the executor", () => {
+    const src = `"use generative";
+import { z } from "zod";
+import { defineToolkit, stubTool } from "@assistant-ui/react";
+export default defineToolkit({
+  add_task: {
+    description: "Add a task.",
+    parameters: z.object({ title: z.string() }),
+    execute: stubTool(),
+    renderText: {
+      running: "Adding task",
+      complete: "Task added",
+    },
+  },
+});`;
+
+    const server = compileGenerative(src, { target: "server" }).code;
+    expect(server).toContain('type: "frontend"');
+    expect(server).not.toContain("disabled");
+    expect(server).not.toContain("stubTool");
+    expect(server).not.toContain("execute");
+    expect(server).not.toContain("renderText");
+
+    const client = compileGenerative(src, { target: "client" }).code;
+    expect(client).toContain('type: "frontend"');
+    expect(client).not.toContain("disabled");
+    expect(client).toContain("renderText");
+    expect(client).toContain("unstable_backendDefault");
+    expect(client).not.toContain("stubTool");
+    expect(client).not.toContain("execute");
+  });
 });
 
 describe("compileGenerative — local dead-code elimination", () => {

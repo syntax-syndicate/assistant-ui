@@ -401,10 +401,11 @@ function compileToolkit(
 
     // Nature is inferred from `execute` (see inferToolType), not an authored
     // `type`. The resolved type is written back below so the runtime keeps it.
+    const execute = findMember(value, "execute");
+    const isStub = execute ? executeIsStubTool(execute) : false;
     const type = inferToolType(value, filename);
     const hasRender = !!findMember(value, "render");
     const hasRenderText = !!findMember(value, "renderText");
-    const execute = findMember(value, "execute");
 
     if (type === "frontend" && !hasRender && !hasRenderText) {
       throw new GenerativeCompileError(
@@ -426,9 +427,9 @@ function compileToolkit(
     }
 
     if (target === "client") {
-      // A frontend execute stays (its `"use client"` marker is no longer needed
-      // once the module is client); backend and sentinel executes are dropped.
-      if (execute && type === "frontend") stripUseClient(execute);
+      // A non-stub frontend execute stays (its `"use client"` marker is no longer needed
+      // once the module is client); backend, sentinel, and stub executes are dropped.
+      if (execute && type === "frontend" && !isStub) stripUseClient(execute);
       else if (execute) removeMember(value, "execute");
       if (hasRender || hasRenderText) flags.keptRender = true;
     } else {
@@ -565,14 +566,21 @@ function executeIsClient(member: t.ObjectProperty | t.ObjectMethod): boolean {
   );
 }
 
-/** Whether an `execute` is the human-in-the-loop sentinel. */
-function executeIsHitl(member: t.ObjectProperty | t.ObjectMethod): boolean {
+function executeIsSentinel(
+  member: t.ObjectProperty | t.ObjectMethod,
+  name: string,
+): boolean {
   return (
     t.isObjectProperty(member) &&
     t.isCallExpression(member.value) &&
-    t.isIdentifier(member.value.callee) &&
-    (member.value.callee.name === "hitl" ||
-      member.value.callee.name === "hitlTool")
+    t.isIdentifier(member.value.callee, { name })
+  );
+}
+
+/** Whether an `execute` is the human-in-the-loop sentinel. */
+function executeIsHitl(member: t.ObjectProperty | t.ObjectMethod): boolean {
+  return (
+    executeIsSentinel(member, "hitl") || executeIsSentinel(member, "hitlTool")
   );
 }
 
@@ -580,11 +588,12 @@ function executeIsHitl(member: t.ObjectProperty | t.ObjectMethod): boolean {
 function executeIsProviderTool(
   member: t.ObjectProperty | t.ObjectMethod,
 ): boolean {
-  return (
-    t.isObjectProperty(member) &&
-    t.isCallExpression(member.value) &&
-    t.isIdentifier(member.value.callee, { name: "providerTool" })
-  );
+  return executeIsSentinel(member, "providerTool");
+}
+
+/** Whether an `execute` is the local override sentinel. */
+function executeIsStubTool(member: t.ObjectProperty | t.ObjectMethod): boolean {
+  return executeIsSentinel(member, "stubTool");
 }
 
 /** Drops the `"use client"` directive from an `execute` body (kept frontend). */
@@ -600,8 +609,9 @@ function stripUseClient(member: t.ObjectProperty | t.ObjectMethod): void {
 /**
  * The tool's nature, inferred from its (mandatory) `execute` rather than an
  * authored `type`: `hitlTool()` → `human`; `providerTool(...)` → `provider`;
- * `"use client"` → `frontend`; otherwise `backend`. The loader writes the result back as a `type` field (see
- * {@link setToolType}) so the runtime keeps it.
+ * `stubTool()` → `frontend`; `"use client"` → `frontend`; otherwise `backend`.
+ * The loader writes the result back as a `type` field (see {@link setToolType})
+ * so the runtime keeps it.
  */
 function inferToolType(
   object: t.ObjectExpression,
@@ -617,6 +627,7 @@ function inferToolType(
   }
   if (executeIsHitl(execute)) return "human";
   if (executeIsProviderTool(execute)) return "provider";
+  if (executeIsStubTool(execute)) return "frontend";
   return executeIsClient(execute) ? "frontend" : "backend";
 }
 
