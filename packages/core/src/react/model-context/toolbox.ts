@@ -1,4 +1,9 @@
-import type { Tool, ToolDeclaration } from "assistant-stream";
+import type {
+  Tool,
+  ToolCallReader,
+  ToolDeclaration,
+  ToolModelOutputFunction,
+} from "assistant-stream";
 import type { ReactNode } from "react";
 import type {
   ToolCallMessagePartComponent,
@@ -37,6 +42,24 @@ type WithRender<T, TArgs extends Record<string, unknown>, TResult> = T extends {
       render?: ToolCallMessagePartComponent<TArgs, TResult> | undefined;
       renderText?: ToolCallText<TArgs, TResult> | undefined;
     };
+
+type ToolParameters<TArgs extends Record<string, unknown>> =
+  ToolDeclaration<TArgs>["parameters"];
+
+// ToolExecutionContext is not re-exported from assistant-stream's public entry.
+type ToolExecuteContext = Parameters<
+  NonNullable<ToolDeclaration["execute"]>
+>[1];
+
+type ToolExecute<TArgs extends Record<string, unknown>, TResult> = (
+  args: TArgs,
+  context: ToolExecuteContext,
+) => TResult | Promise<TResult>;
+
+type ToolStreamCall<TArgs extends Record<string, unknown>, TResult> = (
+  reader: ToolCallReader<TArgs, TResult>,
+  context: ToolExecuteContext,
+) => void;
 
 type ToolCallRunningText<TArgs extends Record<string, unknown>> =
   | ReactNode
@@ -94,8 +117,8 @@ export const makeToolCallTextComponent = <
  * and result. Backend tools execute server-side and may omit a renderer.
  */
 export type ToolDefinition<
-  TArgs extends Record<string, unknown>,
-  TResult,
+  TArgs extends Record<string, unknown> = Record<string, unknown>,
+  TResult = unknown,
 > = WithRender<Tool<TArgs, TResult>, TArgs, TResult>;
 
 /**
@@ -127,16 +150,71 @@ export type Toolkit = Record<string, ToolDefinition<any, any>>;
  * directive → frontend; otherwise backend) and writes it back — so declaring it
  * here is a type error.
  */
+type OverrideOptionalField<
+  T,
+  TKey extends keyof T,
+  TValue,
+> = undefined extends T[TKey]
+  ? // Preserve `?: undefined` fields (for variants that explicitly disallow a
+    // callback) instead of widening them to accept the override value.
+    Exclude<T[TKey], undefined> extends never
+    ? { [K in TKey]?: undefined }
+    : { [K in TKey]?: TValue | undefined }
+  : { [K in TKey]: TValue };
+
+type OverrideToolDeclarationCallbacks<
+  T extends { streamCall?: unknown },
+  TArgs extends Record<string, unknown>,
+  TResult,
+> = Omit<
+  T,
+  | "type"
+  | "execute"
+  | "toModelOutput"
+  | "experimental_onSchemaValidationError"
+  | "streamCall"
+> & {
+  type?: never;
+} & ("execute" extends keyof T
+    ? OverrideOptionalField<T, "execute", ToolExecute<NoInfer<TArgs>, TResult>>
+    : {}) &
+  ("toModelOutput" extends keyof T
+    ? OverrideOptionalField<
+        T,
+        "toModelOutput",
+        ToolModelOutputFunction<NoInfer<TArgs>, NoInfer<TResult>>
+      >
+    : {}) &
+  ("experimental_onSchemaValidationError" extends keyof T
+    ? OverrideOptionalField<
+        T,
+        "experimental_onSchemaValidationError",
+        (
+          args: unknown,
+          context: ToolExecuteContext,
+        ) => NoInfer<TResult> | Promise<NoInfer<TResult>>
+      >
+    : {}) &
+  OverrideOptionalField<
+    T,
+    "streamCall",
+    ToolStreamCall<TArgs, NoInfer<TResult>>
+  >;
+
+// Keep the authored shape tied to ToolDeclaration's union variants while
+// overriding callback fields to avoid inference pollution.
 type ToolkitDefinitionInput<
   TArgs extends Record<string, unknown>,
   TResult,
 > = WithRender<
-  Omit<ToolDeclaration<TArgs, TResult>, "type">,
+  ToolDeclaration<TArgs, TResult> extends infer T
+    ? T extends { streamCall?: unknown }
+      ? OverrideToolDeclarationCallbacks<T, TArgs, TResult>
+      : never
+    : never,
   TArgs,
   TResult
-> & {
-  type?: never;
-};
+>;
 
 /**
  * A single entry in a {@link ToolkitDefinition}.
@@ -147,16 +225,36 @@ type ToolkitDefinitionInput<
  * carries a `type`, so it can only match the {@link ToolDefinition} arm of this
  * union.
  */
-export type ToolkitDefinitionEntry =
-  | ToolkitDefinitionInput<any, any>
-  | ToolDefinition<any, any>;
+export type ToolkitDefinitionEntry<
+  TArgs extends Record<string, unknown> = Record<string, unknown>,
+  TResult = unknown,
+> = ToolkitDefinitionInput<TArgs, TResult> | ToolDefinition<any, any>;
+
+export type ToolkitDefinitionEntryWithParameters<
+  TArgs extends Record<string, unknown> = Record<string, unknown>,
+  TResult = unknown,
+> = ToolkitDefinitionInput<TArgs, TResult> & {
+  parameters: NonNullable<ToolParameters<TArgs>>;
+};
 
 /**
  * The permissive, authoring-time counterpart to {@link Toolkit} — the input to
  * {@link defineToolkit}. Backend entries may carry their server `execute` here;
  * the canonical {@link Toolkit} keeps those fields `undefined`.
  */
-export type ToolkitDefinition = Record<string, ToolkitDefinitionEntry>;
+export type ToolkitDefinition<
+  TArgsByName extends {
+    [K in keyof TArgsByName]: Record<string, unknown>;
+  } = Record<string, any>,
+  TResultByName extends { [K in keyof TArgsByName]: unknown } = {
+    [K in keyof TArgsByName]: any;
+  },
+> = {
+  [K in keyof TArgsByName]: ToolkitDefinitionEntry<
+    TArgsByName[K],
+    TResultByName[K]
+  >;
+};
 
 /** Configuration for the {@link Tools} resource. */
 export type ToolsConfig = {
