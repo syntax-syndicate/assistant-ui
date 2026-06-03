@@ -257,7 +257,7 @@ When an ADK Python 2.0+ Workflow's `RequestInput` node pauses execution to ask t
 <Tab value="React">
 
 ```tsx
-import { makeAssistantToolUI } from "@assistant-ui/react";
+import type { ToolCallMessagePartComponent } from "@assistant-ui/react";
 import { useAdkSubmitInput } from "@assistant-ui/react-google-adk";
 
 type RequestInputArgs = {
@@ -267,12 +267,10 @@ type RequestInputArgs = {
   response_schema?: unknown;
 };
 
-export const RequestInputToolUI = makeAssistantToolUI<
+export const RequestInputToolUI: ToolCallMessagePartComponent<
   RequestInputArgs,
   unknown
->({
-  toolName: "adk_request_input",
-  render: function RequestInputUI({ toolCallId, args, result }) {
+> = function RequestInputUI({ toolCallId, args, result }) {
     const submitInput = useAdkSubmitInput();
 
     if (result !== undefined) {
@@ -294,15 +292,14 @@ export const RequestInputToolUI = makeAssistantToolUI<
         <button type="submit">Submit</button>
       </form>
     );
-  },
-});
+};
 ```
 
 </Tab>
 <Tab value="React Native">
 
 ```tsx
-import { makeAssistantToolUI } from "@assistant-ui/react-native";
+import type { ToolCallMessagePartComponent } from "@assistant-ui/react-native";
 import { useAdkSubmitInput } from "@assistant-ui/react-google-adk";
 import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
@@ -314,12 +311,10 @@ type RequestInputArgs = {
   response_schema?: unknown;
 };
 
-export const RequestInputToolUI = makeAssistantToolUI<
+export const RequestInputToolUI: ToolCallMessagePartComponent<
   RequestInputArgs,
   unknown
->({
-  toolName: "adk_request_input",
-  render: function RequestInputUI({ toolCallId, args, result }) {
+> = function RequestInputUI({ toolCallId, args, result }) {
     const submitInput = useAdkSubmitInput();
     const [value, setValue] = useState("");
 
@@ -336,15 +331,14 @@ export const RequestInputToolUI = makeAssistantToolUI<
         </Pressable>
       </View>
     );
-  },
-});
+};
 ```
 
 </Tab>
 <Tab value="React Ink">
 
 ```tsx
-import { makeAssistantToolUI } from "@assistant-ui/react-ink";
+import type { ToolCallMessagePartComponent } from "@assistant-ui/react-ink";
 import { useAdkSubmitInput } from "@assistant-ui/react-google-adk";
 import { useState } from "react";
 import { Box, Text, useInput } from "ink";
@@ -356,12 +350,10 @@ type RequestInputArgs = {
   response_schema?: unknown;
 };
 
-export const RequestInputToolUI = makeAssistantToolUI<
+export const RequestInputToolUI: ToolCallMessagePartComponent<
   RequestInputArgs,
   unknown
->({
-  toolName: "adk_request_input",
-  render: function RequestInputUI({ toolCallId, args, result }) {
+> = function RequestInputUI({ toolCallId, args, result }) {
     const submitInput = useAdkSubmitInput();
     const [value, setValue] = useState("");
 
@@ -383,53 +375,131 @@ export const RequestInputToolUI = makeAssistantToolUI<
         <Text dimColor>Press enter to submit.</Text>
       </Box>
     );
-  },
-});
+};
 ```
 
 </Tab>
 </PlatformTabs>
 
-Register the tool UI inside `AssistantRuntimeProvider`:
+Register the renderer with a backend toolkit entry inside `AssistantRuntimeProvider`:
 
 <PlatformTabs>
 <Tab value="React">
 
 ```tsx
-<AssistantRuntimeProvider runtime={runtime}>
-  <RequestInputToolUI />
-  <Thread />
-</AssistantRuntimeProvider>
+import {
+  AssistantRuntimeProvider,
+  Tools,
+  type Toolkit,
+  useAui,
+} from "@assistant-ui/react";
+import {
+  createAdkStream,
+  useAdkRuntime,
+} from "@assistant-ui/react-google-adk";
+import { Thread } from "@/components/assistant-ui/thread";
+
+const toolkit = {
+  adk_request_input: {
+    type: "backend",
+    render: RequestInputToolUI,
+  },
+} satisfies Toolkit;
+
+function App() {
+  const runtime = useAdkRuntime({
+    stream: createAdkStream({ api: "/api/chat" }),
+  });
+  const aui = useAui({ tools: Tools({ toolkit }) });
+
+  return (
+    <AssistantRuntimeProvider aui={aui} runtime={runtime}>
+      <Thread />
+    </AssistantRuntimeProvider>
+  );
+}
 ```
 
 </Tab>
 <Tab value="React Native">
 
 ```tsx
+import {
+  AssistantRuntimeProvider,
+  Tools,
+  type Toolkit,
+  useAui,
+} from "@assistant-ui/react-native";
+import {
+  createAdkStream,
+  useAdkRuntime,
+} from "@assistant-ui/react-google-adk";
 import { View } from "react-native";
 import { Thread } from "@/components/assistant-ui/thread";
 
-<AssistantRuntimeProvider runtime={runtime}>
-  <RequestInputToolUI />
-  <View style={{ flex: 1 }}>
-    <Thread />
-  </View>
-</AssistantRuntimeProvider>;
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
+
+const toolkit = {
+  adk_request_input: {
+    type: "backend",
+    render: RequestInputToolUI,
+  },
+} satisfies Toolkit;
+
+function App() {
+  const runtime = useAdkRuntime({
+    stream: createAdkStream({ api: `${API_URL}/api/chat` }),
+  });
+  const aui = useAui({ tools: Tools({ toolkit }) });
+
+  return (
+    <AssistantRuntimeProvider aui={aui} runtime={runtime}>
+      <View style={{ flex: 1 }}>
+        <Thread />
+      </View>
+    </AssistantRuntimeProvider>
+  );
+}
 ```
 
 </Tab>
 <Tab value="React Ink">
 
 ```tsx
+import {
+  AssistantRuntimeProvider,
+  Tools,
+  type Toolkit,
+  useAui,
+} from "@assistant-ui/react-ink";
+import {
+  createAdkStream,
+  useAdkRuntime,
+} from "@assistant-ui/react-google-adk";
 import { Box } from "ink";
 import { Thread } from "./components/thread.js";
 
-<AssistantRuntimeProvider runtime={runtime}>
-  <RequestInputToolUI />
-  <Box flexDirection="column">
-    <Thread />
-  </Box>
-</AssistantRuntimeProvider>;
+const toolkit = {
+  adk_request_input: {
+    type: "backend",
+    render: RequestInputToolUI,
+  },
+} satisfies Toolkit;
+
+function App() {
+  const runtime = useAdkRuntime({
+    stream: createAdkStream({ api: "http://localhost:3000/api/chat" }),
+  });
+  const aui = useAui({ tools: Tools({ toolkit }) });
+
+  return (
+    <AssistantRuntimeProvider aui={aui} runtime={runtime}>
+      <Box flexDirection="column">
+        <Thread />
+      </Box>
+    </AssistantRuntimeProvider>
+  );
+}
 ```
 
 </Tab>

@@ -1,19 +1,27 @@
 "use client";
 
-import { useRef, useState, useCallback, useEffect } from "react";
+import {
+  useRef,
+  useState,
+  useCallback,
+  useEffect,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { Thread } from "@/components/assistant-ui/thread";
 import {
   AssistantRuntimeProvider,
+  AuiProvider,
   Interactables,
   Suggestions,
+  Tools,
   useAui,
+  useAuiToolOverrides,
   useAssistantInteractable,
   useInteractableState,
-  useAssistantTool,
 } from "@assistant-ui/react";
 import { useChatRuntime } from "@assistant-ui/react-ai-sdk";
 import { lastAssistantMessageIsCompleteWithToolCalls } from "ai";
-import { z } from "zod";
 import {
   CheckCircle2Icon,
   CircleIcon,
@@ -23,23 +31,15 @@ import {
   Trash2Icon,
   PlusIcon,
 } from "lucide-react";
-
-type Task = { id: string; title: string; done: boolean };
-type TaskBoardState = { tasks: Task[] };
-
-const taskBoardSchema = z.object({
-  tasks: z.array(
-    z.object({
-      id: z.string(),
-      title: z.string(),
-      done: z.boolean(),
-    }),
-  ),
-});
-
-const taskBoardInitialState: TaskBoardState = { tasks: [] };
-
-let nextTaskId = 0;
+import {
+  type NoteState,
+  type TaskBoardState,
+  noteInitialState,
+  noteSchema,
+  taskBoardInitialState,
+  taskBoardSchema,
+} from "./state";
+import toolkit from "./toolkits";
 
 function TaskBoard() {
   const id = useAssistantInteractable("taskBoard", {
@@ -53,140 +53,128 @@ function TaskBoard() {
     taskBoardInitialState,
   );
 
-  const setStateRef = useRef(setState);
-  setStateRef.current = setState;
-
-  useAssistantTool({
-    toolName: "manage_tasks",
-    description:
-      'Manage tasks on the task board. Actions: "add" (requires title), "toggle" (requires id), "remove" (requires id), "clear" (no extra fields).',
-    parameters: z.object({
-      action: z.enum(["add", "toggle", "remove", "clear"]),
-      title: z.string().optional(),
-      id: z.string().optional(),
-    }),
-    execute: async (args) => {
-      const set = setStateRef.current;
-      switch (args.action) {
-        case "add": {
-          const id = `task-${++nextTaskId}`;
-          set((prev) => ({
-            tasks: [
-              ...prev.tasks,
-              { id, title: args.title ?? "Untitled", done: false },
-            ],
-          }));
-          return { success: true, id };
-        }
-        case "toggle": {
-          if (!args.id) return { success: false, error: "id is required" };
-          set((prev) => ({
-            tasks: prev.tasks.map((t) =>
-              t.id === args.id ? { ...t, done: !t.done } : t,
-            ),
-          }));
-          return { success: true };
-        }
-        case "remove": {
-          if (!args.id) return { success: false, error: "id is required" };
-          set((prev) => ({
-            tasks: prev.tasks.filter((t) => t.id !== args.id),
-          }));
-          return { success: true };
-        }
-        case "clear": {
-          set({ tasks: [] });
-          return { success: true };
-        }
-        default:
-          return { success: false, error: "Unknown action" };
-      }
-    },
-  });
+  const aui = useAui({ tools: Tools({ toolkit }) });
 
   const doneCount = state.tasks.filter((t) => t.done).length;
 
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center gap-2 border-b px-4 py-3">
-        <ListTodoIcon className="text-muted-foreground size-4" />
-        <span className="text-sm font-semibold">Task Board</span>
-        {isPending && (
-          <Loader2Icon className="text-muted-foreground size-3 animate-spin" />
-        )}
-        {state.tasks.length > 0 && (
-          <span className="bg-primary/10 text-primary ml-auto rounded-full px-2 py-0.5 text-xs font-medium">
-            {doneCount}/{state.tasks.length}
-          </span>
-        )}
+    <AuiProvider value={aui}>
+      <TaskBoardToolOverrides setState={setState} />
+      <div className="flex flex-col">
+        <div className="flex items-center gap-2 border-b px-4 py-3">
+          <ListTodoIcon className="text-muted-foreground size-4" />
+          <span className="text-sm font-semibold">Task Board</span>
+          {isPending && (
+            <Loader2Icon className="text-muted-foreground size-3 animate-spin" />
+          )}
+          {state.tasks.length > 0 && (
+            <span className="bg-primary/10 text-primary ml-auto rounded-full px-2 py-0.5 text-xs font-medium">
+              {doneCount}/{state.tasks.length}
+            </span>
+          )}
+        </div>
+        <div className="flex-1 overflow-y-auto p-3">
+          {state.tasks.length === 0 ? (
+            <p className="text-muted-foreground py-6 text-center text-xs">
+              No tasks yet. Ask the assistant!
+            </p>
+          ) : (
+            <ul className="space-y-1">
+              {state.tasks.map((task) => (
+                <li
+                  key={task.id}
+                  className="group hover:bg-muted flex items-center gap-2 rounded-lg px-3 py-2 transition-colors"
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setState((prev) => ({
+                        tasks: prev.tasks.map((t) =>
+                          t.id === task.id ? { ...t, done: !t.done } : t,
+                        ),
+                      }))
+                    }
+                    className="shrink-0"
+                  >
+                    {task.done ? (
+                      <CheckCircle2Icon className="text-primary size-4" />
+                    ) : (
+                      <CircleIcon className="text-muted-foreground size-4" />
+                    )}
+                  </button>
+                  <span
+                    className={`flex-1 text-sm ${task.done ? "text-muted-foreground line-through" : ""}`}
+                  >
+                    {task.title}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setState((prev) => ({
+                        tasks: prev.tasks.filter((t) => t.id !== task.id),
+                      }))
+                    }
+                    className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                  >
+                    <Trash2Icon className="text-muted-foreground hover:text-destructive size-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-3">
-        {state.tasks.length === 0 ? (
-          <p className="text-muted-foreground py-6 text-center text-xs">
-            No tasks yet. Ask the assistant!
-          </p>
-        ) : (
-          <ul className="space-y-1">
-            {state.tasks.map((task) => (
-              <li
-                key={task.id}
-                className="group hover:bg-muted flex items-center gap-2 rounded-lg px-3 py-2 transition-colors"
-              >
-                <button
-                  type="button"
-                  onClick={() =>
-                    setState((prev) => ({
-                      tasks: prev.tasks.map((t) =>
-                        t.id === task.id ? { ...t, done: !t.done } : t,
-                      ),
-                    }))
-                  }
-                  className="shrink-0"
-                >
-                  {task.done ? (
-                    <CheckCircle2Icon className="text-primary size-4" />
-                  ) : (
-                    <CircleIcon className="text-muted-foreground size-4" />
-                  )}
-                </button>
-                <span
-                  className={`flex-1 text-sm ${task.done ? "text-muted-foreground line-through" : ""}`}
-                >
-                  {task.title}
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setState((prev) => ({
-                      tasks: prev.tasks.filter((t) => t.id !== task.id),
-                    }))
-                  }
-                  className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-                >
-                  <Trash2Icon className="text-muted-foreground hover:text-destructive size-3.5" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
+    </AuiProvider>
   );
 }
 
-type NoteState = { title: string; content: string; color: string };
-
-const noteSchema = z.object({
-  title: z.string(),
-  content: z.string(),
-  color: z.enum(["yellow", "blue", "green", "pink"]),
-});
-
-const noteInitialState: NoteState = {
-  title: "New Note",
-  content: "",
-  color: "yellow",
-};
+function TaskBoardToolOverrides({
+  setState,
+}: {
+  setState: Dispatch<SetStateAction<TaskBoardState>>;
+}) {
+  useAuiToolOverrides({
+    manage_tasks: {
+      execute: async (args) => {
+        switch (args.action) {
+          case "add": {
+            const id = crypto.randomUUID();
+            setState((prev) => ({
+              tasks: [
+                ...prev.tasks,
+                { id, title: args.title ?? "Untitled", done: false },
+              ],
+            }));
+            return { success: true, id };
+          }
+          case "toggle": {
+            if (!args.id) return { success: false, error: "id is required" };
+            setState((prev) => ({
+              tasks: prev.tasks.map((t) =>
+                t.id === args.id ? { ...t, done: !t.done } : t,
+              ),
+            }));
+            return { success: true };
+          }
+          case "remove": {
+            if (!args.id) return { success: false, error: "id is required" };
+            setState((prev) => ({
+              tasks: prev.tasks.filter((t) => t.id !== args.id),
+            }));
+            return { success: true };
+          }
+          case "clear": {
+            setState({ tasks: [] });
+            return { success: true };
+          }
+          default:
+            return { success: false, error: "Unknown action" };
+        }
+      },
+    },
+  });
+  return null;
+}
 
 const COLORS: Record<string, string> = {
   yellow: "bg-yellow-100 border-yellow-300",
@@ -285,46 +273,7 @@ function NotesPanel() {
     localStorage.setItem(NOTE_IDS_KEY, JSON.stringify(noteIds));
   }, [noteIds]);
 
-  const noteIdsRef = useRef(noteIds);
-  noteIdsRef.current = noteIds;
-  const setNoteIdsRef = useRef(setNoteIds);
-  setNoteIdsRef.current = setNoteIds;
-  const setSelectedIdRef = useRef(setSelectedId);
-  setSelectedIdRef.current = setSelectedId;
-
-  useAssistantTool({
-    toolName: "manage_notes",
-    description:
-      'Manage sticky notes. Actions: "add" (creates a new note, returns its id), "remove" (requires noteId), "clear" (removes all notes). After adding, use the update_note_{id} tool to set its content.',
-    parameters: z.object({
-      action: z.enum(["add", "remove", "clear"]),
-      noteId: z.string().optional(),
-    }),
-    execute: async (args) => {
-      switch (args.action) {
-        case "add": {
-          const id = `note-${Date.now().toString(36)}`;
-          setNoteIdsRef.current((prev) => [...prev, id]);
-          return { success: true, noteId: id };
-        }
-        case "remove": {
-          if (args.noteId) {
-            setNoteIdsRef.current((prev) =>
-              prev.filter((id) => id !== args.noteId),
-            );
-          }
-          return { success: true };
-        }
-        case "clear": {
-          setNoteIdsRef.current([]);
-          setSelectedIdRef.current(null);
-          return { success: true };
-        }
-        default:
-          return { success: false, error: "Unknown action" };
-      }
-    },
-  });
+  const aui = useAui({ tools: Tools({ toolkit }) });
 
   const handleSelect = useCallback((id: string) => {
     setSelectedId(id);
@@ -336,45 +285,87 @@ function NotesPanel() {
   }, []);
 
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center gap-2 border-b px-4 py-3">
-        <StickyNoteIcon className="text-muted-foreground size-4" />
-        <span className="text-sm font-semibold">Notes</span>
-        <span className="text-muted-foreground ml-auto text-xs">
-          {noteIds.length}
-        </span>
-        <button
-          type="button"
-          onClick={() => {
-            const id = `note-${Date.now().toString(36)}`;
-            setNoteIds((prev) => [...prev, id]);
-          }}
-          className="hover:bg-muted rounded p-1 transition-colors"
-        >
-          <PlusIcon className="text-muted-foreground size-3.5" />
-        </button>
+    <AuiProvider value={aui}>
+      <NotesToolOverrides
+        setNoteIds={setNoteIds}
+        setSelectedId={setSelectedId}
+      />
+      <div className="flex flex-col">
+        <div className="flex items-center gap-2 border-b px-4 py-3">
+          <StickyNoteIcon className="text-muted-foreground size-4" />
+          <span className="text-sm font-semibold">Notes</span>
+          <span className="text-muted-foreground ml-auto text-xs">
+            {noteIds.length}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              const id = `note-${crypto.randomUUID()}`;
+              setNoteIds((prev) => [...prev, id]);
+            }}
+            className="hover:bg-muted rounded p-1 transition-colors"
+          >
+            <PlusIcon className="text-muted-foreground size-3.5" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3">
+          {noteIds.length === 0 ? (
+            <p className="text-muted-foreground py-6 text-center text-xs">
+              No notes yet. Ask the assistant!
+            </p>
+          ) : (
+            <div className="grid gap-2">
+              {noteIds.map((noteId) => (
+                <NoteCard
+                  key={noteId}
+                  noteId={noteId}
+                  selectedId={selectedId}
+                  onSelect={handleSelect}
+                  onRemove={handleRemove}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-3">
-        {noteIds.length === 0 ? (
-          <p className="text-muted-foreground py-6 text-center text-xs">
-            No notes yet. Ask the assistant!
-          </p>
-        ) : (
-          <div className="grid gap-2">
-            {noteIds.map((noteId) => (
-              <NoteCard
-                key={noteId}
-                noteId={noteId}
-                selectedId={selectedId}
-                onSelect={handleSelect}
-                onRemove={handleRemove}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+    </AuiProvider>
   );
+}
+
+function NotesToolOverrides({
+  setNoteIds,
+  setSelectedId,
+}: {
+  setNoteIds: Dispatch<SetStateAction<string[]>>;
+  setSelectedId: Dispatch<SetStateAction<string | null>>;
+}) {
+  useAuiToolOverrides({
+    manage_notes: {
+      execute: async (args) => {
+        switch (args.action) {
+          case "add": {
+            const id = `note-${crypto.randomUUID()}`;
+            setNoteIds((prev) => [...prev, id]);
+            return { success: true, noteId: id };
+          }
+          case "remove": {
+            if (args.noteId) {
+              setNoteIds((prev) => prev.filter((id) => id !== args.noteId));
+            }
+            return { success: true };
+          }
+          case "clear": {
+            setNoteIds([]);
+            setSelectedId(null);
+            return { success: true };
+          }
+          default:
+            return { success: false, error: "Unknown action" };
+        }
+      },
+    },
+  });
+  return null;
 }
 
 const STORAGE_KEY = "interactables-example";

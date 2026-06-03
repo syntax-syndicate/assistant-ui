@@ -320,6 +320,8 @@ export async function POST(req: Request) {
 On the client, configure `useChat` with `sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses` so the response is sent back to the server when the user decides:
 
 ```tsx title="@/app/page.tsx"
+"use client";
+
 import { useChat } from "@ai-sdk/react";
 import {
   AssistantRuntimeProvider,
@@ -343,39 +345,64 @@ export default function Page() {
 }
 ```
 
-Render the gate with a tool UI. The `approval` field carries the gate state, and `respondToApproval` is the only correct way to acknowledge it (it reads the approval id from the part):
+Render the gate with a toolkit entry. The `approval` field carries the gate state, and `respondToApproval` is the only correct way to acknowledge it (it reads the approval id from the part):
 
-```tsx title="@/components/DeployToolUI.tsx"
-import { makeAssistantToolUI } from "@assistant-ui/react";
+```tsx title="@/app/page.tsx"
+"use client";
 
-export const DeployToolUI = makeAssistantToolUI<
-  { target: string },
-  { deployed: string }
->({
-  toolName: "deploy",
-  render: ({ args, approval, respondToApproval, result }) => {
-    if (approval?.approved === undefined) {
-      return (
-        <div>
-          <p>Approve deploy to {args.target}?</p>
-          <button onClick={() => respondToApproval({ approved: true })}>
-            Approve
-          </button>
-          <button
-            onClick={() =>
-              respondToApproval({ approved: false, reason: "user denied" })
-            }
-          >
-            Deny
-          </button>
-        </div>
-      );
-    }
-    if (approval?.approved === false) return <p>Denied</p>;
-    if (result === undefined) return <p>Approved, deploying…</p>;
-    return <p>Deployed {result.deployed}</p>;
+import { useChat } from "@ai-sdk/react";
+import {
+  AssistantRuntimeProvider,
+  Tools,
+  type Toolkit,
+  useAui,
+} from "@assistant-ui/react";
+import { useAISDKRuntime } from "@assistant-ui/react-ai-sdk";
+import { lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
+import { Thread } from "@/components/assistant-ui/thread";
+
+const toolkit = {
+  deploy: {
+    type: "backend",
+    render: ({ args, approval, respondToApproval, result }) => {
+      if (approval?.approved === undefined) {
+        return (
+          <div>
+            <p>Approve deploy to {args.target}?</p>
+            <button onClick={() => respondToApproval({ approved: true })}>
+              Approve
+            </button>
+            <button
+              onClick={() =>
+                respondToApproval({ approved: false, reason: "user denied" })
+              }
+            >
+              Deny
+            </button>
+          </div>
+        );
+      }
+      if (approval?.approved === false) return <p>Denied</p>;
+      if (result === undefined) return <p>Approved, deploying…</p>;
+      return <p>Deployed {result.deployed}</p>;
+    },
   },
-});
+} satisfies Toolkit;
+
+export default function Page() {
+  const chat = useChat({
+    api: "/api/chat",
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+  });
+  const runtime = useAISDKRuntime(chat);
+  const aui = useAui({ tools: Tools({ toolkit }) });
+
+  return (
+    <AssistantRuntimeProvider aui={aui} runtime={runtime}>
+      <Thread />
+    </AssistantRuntimeProvider>
+  );
+}
 ```
 
 See the [tool UI guide](/docs/guides/tool-ui#server-side-approval-gates) for the full three-state semantics of `approval.approved` and the `isAutomatic` flag.

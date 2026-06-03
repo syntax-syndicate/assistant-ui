@@ -1,15 +1,17 @@
 "use client";
 
-import { type FC, useMemo, useRef } from "react";
+import { type Dispatch, type FC, type SetStateAction, useMemo } from "react";
 import {
   AssistantRuntimeProvider,
+  AuiProvider,
   useAui,
   useAuiState,
   Interactables,
   Suggestions,
+  Tools,
+  useAuiToolOverrides,
   useAssistantInteractable,
   useInteractableState,
-  useAssistantTool,
   ThreadPrimitive,
   ComposerPrimitive,
   MessagePrimitive,
@@ -25,7 +27,6 @@ import { useChatRuntime } from "@assistant-ui/react-ai-sdk";
 import { lastAssistantMessageIsCompleteWithToolCalls } from "ai";
 import { SampleFrame } from "@/components/docs/samples/sample-frame";
 import remarkGfm from "remark-gfm";
-import { z } from "zod";
 import {
   ArrowUpIcon,
   CheckCircle2Icon,
@@ -34,23 +35,12 @@ import {
   Square,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-type Task = { id: string; title: string; done: boolean };
-type TaskBoardState = { tasks: Task[] };
-
-const taskBoardSchema = z.object({
-  tasks: z.array(
-    z.object({
-      id: z.string(),
-      title: z.string(),
-      done: z.boolean(),
-    }),
-  ),
-});
-
-const taskBoardInitialState: TaskBoardState = { tasks: [] };
-
-let nextTaskId = 0;
+import {
+  type TaskBoardState,
+  taskBoardInitialState,
+  taskBoardSchema,
+} from "./interactable-state";
+import toolkit from "./interactable-toolkit";
 
 const TaskBoard: FC = () => {
   const id = useAssistantInteractable("taskBoard", {
@@ -64,58 +54,7 @@ const TaskBoard: FC = () => {
     taskBoardInitialState,
   );
 
-  // Register a custom frontend tool for incremental updates.
-  // This avoids full-state replacement, preserving user changes (e.g. toggles).
-  const setStateRef = useRef(setState);
-  setStateRef.current = setState;
-
-  useAssistantTool({
-    toolName: "manage_tasks",
-    description:
-      'Manage tasks on the task board. Actions: "add" (requires title), "toggle" (requires id), "remove" (requires id), "clear" (no extra fields).',
-    parameters: z.object({
-      action: z.enum(["add", "toggle", "remove", "clear"]),
-      title: z.string().optional(),
-      id: z.string().optional(),
-    }),
-    execute: async (args) => {
-      const set = setStateRef.current;
-      switch (args.action) {
-        case "add": {
-          const id = `task-${++nextTaskId}`;
-          set((prev) => ({
-            tasks: [
-              ...prev.tasks,
-              { id, title: args.title ?? "Untitled", done: false },
-            ],
-          }));
-          return { success: true, id };
-        }
-        case "toggle": {
-          if (!args.id) return { success: false, error: "id is required" };
-          set((prev) => ({
-            tasks: prev.tasks.map((t) =>
-              t.id === args.id ? { ...t, done: !t.done } : t,
-            ),
-          }));
-          return { success: true };
-        }
-        case "remove": {
-          if (!args.id) return { success: false, error: "id is required" };
-          set((prev) => ({
-            tasks: prev.tasks.filter((t) => t.id !== args.id),
-          }));
-          return { success: true };
-        }
-        case "clear": {
-          set({ tasks: [] });
-          return { success: true };
-        }
-        default:
-          return { success: false, error: "Unknown action" };
-      }
-    },
-  });
+  const aui = useAui({ tools: Tools({ toolkit }) });
 
   const toggleTask = (id: string) => {
     setState((prev) => ({
@@ -126,53 +65,104 @@ const TaskBoard: FC = () => {
   const doneCount = state.tasks.filter((t) => t.done).length;
 
   return (
-    <div className="bg-muted/30 flex h-full flex-col border-s">
-      <div className="flex items-center gap-2 border-b px-4 py-3">
-        <ListTodoIcon className="text-muted-foreground size-4" />
-        <span className="text-sm font-medium">Task Board</span>
-        {state.tasks.length > 0 && (
-          <span className="text-muted-foreground ms-auto text-xs">
-            {doneCount}/{state.tasks.length}
-          </span>
-        )}
-      </div>
+    <AuiProvider value={aui}>
+      <TaskBoardToolOverrides setState={setState} />
+      <div className="bg-muted/30 flex h-full flex-col border-s">
+        <div className="flex items-center gap-2 border-b px-4 py-3">
+          <ListTodoIcon className="text-muted-foreground size-4" />
+          <span className="text-sm font-medium">Task Board</span>
+          {state.tasks.length > 0 && (
+            <span className="text-muted-foreground ms-auto text-xs">
+              {doneCount}/{state.tasks.length}
+            </span>
+          )}
+        </div>
 
-      <div className="flex-1 overflow-y-auto p-3">
-        {state.tasks.length === 0 ? (
-          <div className="text-muted-foreground flex h-full flex-col items-center justify-center text-center text-xs">
-            <ListTodoIcon className="mb-2 size-8 opacity-30" />
-            <p>No tasks yet.</p>
-            <p className="mt-1 opacity-70">Ask the assistant to add some!</p>
-          </div>
-        ) : (
-          <ul className="space-y-1.5">
-            {state.tasks.map((task) => (
-              <li key={task.id}>
-                <button
-                  type="button"
-                  onClick={() => toggleTask(task.id)}
-                  className={cn(
-                    "hover:bg-muted flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-start text-sm transition-colors",
-                    task.done && "opacity-50",
-                  )}
-                >
-                  {task.done ? (
-                    <CheckCircle2Icon className="text-primary size-4 shrink-0" />
-                  ) : (
-                    <CircleIcon className="text-muted-foreground size-4 shrink-0" />
-                  )}
-                  <span className={cn("flex-1", task.done && "line-through")}>
-                    {task.title}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        <div className="flex-1 overflow-y-auto p-3">
+          {state.tasks.length === 0 ? (
+            <div className="text-muted-foreground flex h-full flex-col items-center justify-center text-center text-xs">
+              <ListTodoIcon className="mb-2 size-8 opacity-30" />
+              <p>No tasks yet.</p>
+              <p className="mt-1 opacity-70">Ask the assistant to add some!</p>
+            </div>
+          ) : (
+            <ul className="space-y-1.5">
+              {state.tasks.map((task) => (
+                <li key={task.id}>
+                  <button
+                    type="button"
+                    onClick={() => toggleTask(task.id)}
+                    className={cn(
+                      "hover:bg-muted flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-start text-sm transition-colors",
+                      task.done && "opacity-50",
+                    )}
+                  >
+                    {task.done ? (
+                      <CheckCircle2Icon className="text-primary size-4 shrink-0" />
+                    ) : (
+                      <CircleIcon className="text-muted-foreground size-4 shrink-0" />
+                    )}
+                    <span className={cn("flex-1", task.done && "line-through")}>
+                      {task.title}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
-    </div>
+    </AuiProvider>
   );
 };
+
+function TaskBoardToolOverrides({
+  setState,
+}: {
+  setState: Dispatch<SetStateAction<TaskBoardState>>;
+}) {
+  useAuiToolOverrides({
+    manage_tasks: {
+      execute: async (args) => {
+        switch (args.action) {
+          case "add": {
+            const id = crypto.randomUUID();
+            setState((prev) => ({
+              tasks: [
+                ...prev.tasks,
+                { id, title: args.title ?? "Untitled", done: false },
+              ],
+            }));
+            return { success: true, id };
+          }
+          case "toggle": {
+            if (!args.id) return { success: false, error: "id is required" };
+            setState((prev) => ({
+              tasks: prev.tasks.map((t) =>
+                t.id === args.id ? { ...t, done: !t.done } : t,
+              ),
+            }));
+            return { success: true };
+          }
+          case "remove": {
+            if (!args.id) return { success: false, error: "id is required" };
+            setState((prev) => ({
+              tasks: prev.tasks.filter((t) => t.id !== args.id),
+            }));
+            return { success: true };
+          }
+          case "clear": {
+            setState({ tasks: [] });
+            return { success: true };
+          }
+          default:
+            return { success: false, error: "Unknown action" };
+        }
+      },
+    },
+  });
+  return null;
+}
 
 const MiniThread: FC = () => {
   return (
