@@ -5,6 +5,7 @@ import type {
   AddToolResultOptions,
   AppendMessage,
   AssistantRuntime,
+  ChatModelRunOptions,
   ChatModelRunResult,
   MessageStatus,
   ThreadAssistantMessage,
@@ -35,11 +36,14 @@ const isOptimisticId = (id: string) => id.startsWith(optimisticPrefix);
 const symbolResumeShim = Symbol("agui-resume-shim");
 
 type RunConfig = NonNullable<AppendMessage["runConfig"]>;
+type ResumeStream = (
+  options: ChatModelRunOptions,
+) => AsyncGenerator<ChatModelRunResult, void, unknown>;
 type ResumeRunConfig = {
   parentId: string | null;
   sourceId: string | null;
   runConfig: RunConfig;
-  stream?: unknown;
+  stream?: ResumeStream;
 };
 
 type CoreOptions = {
@@ -136,7 +140,13 @@ export class AgUiThreadRuntimeCore {
 
         if (repo.unstable_resume) {
           const parentId = repo.headId ?? messages.at(-1)?.id ?? null;
-          await this.startRun(parentId, this.lastRunConfig);
+          const resumeStream = this.history?.resume?.bind(this.history);
+          await this.startRun(
+            parentId,
+            this.lastRunConfig,
+            undefined,
+            resumeStream,
+          );
         }
       })
       .catch((error) => {
@@ -194,14 +204,11 @@ export class AgUiThreadRuntimeCore {
 
   async resume(config: ResumeRunConfig): Promise<void> {
     this.assertNoPendingInterrupts();
-    if (config.stream) {
-      this.logger.debug?.(
-        "[agui] resume stream is not supported, falling back to regular run",
-      );
-    }
     await this.startRun(
       config.parentId,
       config.runConfig ?? this.lastRunConfig,
+      undefined,
+      config.stream,
     );
   }
 
@@ -442,20 +449,14 @@ export class AgUiThreadRuntimeCore {
     parentId: string | null,
     runConfig?: RunConfig,
     resume?: AgUiResumeEntry[],
+    resumeStream?: ResumeStream,
   ): Promise<void> {
     const normalizedRunConfig = runConfig ?? {};
     this.lastRunConfig = normalizedRunConfig;
     this.resetHead(parentId);
     const historicalMessages = [...this.messages];
 
-    const runId = generateId();
     this.pendingError = null;
-    const input = this.buildRunInput(
-      runId,
-      normalizedRunConfig,
-      historicalMessages,
-      resume,
-    );
     const assistantParentId = parentId ?? this.messages.at(-1)?.id ?? null;
     let assistantMessageId: string | undefined;
     const ensureAssistant = () => {
@@ -466,15 +467,17 @@ export class AgUiThreadRuntimeCore {
       return created;
     };
 
+    const applyUpdate = (update: ChatModelRunResult) => {
+      const resolved = this.updateAssistantMessage(ensureAssistant(), update);
+      if (resolved !== assistantMessageId) {
+        assistantMessageId = resolved;
+      }
+    };
+
     const aggregator = new RunAggregator({
       showThinking: this.showThinking,
       logger: this.logger,
-      emit: (update) => {
-        const resolved = this.updateAssistantMessage(ensureAssistant(), update);
-        if (resolved !== assistantMessageId) {
-          assistantMessageId = resolved;
-        }
-      },
+      emit: applyUpdate,
       onServerMessageId: (serverId) => {
         const placeholder = ensureAssistant();
         if (placeholder === serverId) return;
@@ -488,40 +491,63 @@ export class AgUiThreadRuntimeCore {
     const abortSignal = abortController.signal;
     this.abortController = abortController;
 
+    let cancelRun = () => dispatch({ type: "RUN_CANCELLED" });
     abortSignal.addEventListener(
       "abort",
       () => {
-        dispatch({ type: "RUN_CANCELLED" });
+        cancelRun();
         this.finishRun(abortController);
         this.onCancel?.();
       },
       { once: true },
     );
 
-    const subscriber = createAgUiSubscriber({
-      dispatch,
-      runId,
-      logger: this.logger,
-      onRunFailed: (error) => {
-        this.pendingError = error;
-        this.onError?.(error);
-      },
-    });
-
-    aggregator.handle({ type: "RUN_STARTED", runId });
     this.setRunning(true);
 
     try {
-      try {
-        (this.agent as any).messages = input.messages;
-        (this.agent as any).threadId = input.threadId;
-        (this.agent as any).state = input.state ?? null;
-      } catch {
-        // ignore
+      if (resumeStream) {
+        // Cancel flips only the status; an aggregator RUN_CANCELLED would emit an empty snapshot and wipe the replayed content.
+        cancelRun = () =>
+          applyUpdate({ status: { type: "incomplete", reason: "cancelled" } });
+        await this.consumeResumeStream(resumeStream, {
+          runConfig: normalizedRunConfig,
+          threadId: this.agent.threadId || "main",
+          parentId: assistantParentId,
+          historicalMessages,
+          abortSignal,
+          ensureAssistant,
+          applyUpdate,
+          getAssistantMessageId: () => assistantMessageId,
+        });
+      } else {
+        const runId = generateId();
+        aggregator.handle({ type: "RUN_STARTED", runId });
+        const input = this.buildRunInput(
+          runId,
+          normalizedRunConfig,
+          historicalMessages,
+          resume,
+        );
+        const subscriber = createAgUiSubscriber({
+          dispatch,
+          runId,
+          logger: this.logger,
+          onRunFailed: (error) => {
+            this.pendingError = error;
+            this.onError?.(error);
+          },
+        });
+        try {
+          (this.agent as any).messages = input.messages;
+          (this.agent as any).threadId = input.threadId;
+          (this.agent as any).state = input.state ?? null;
+        } catch {
+          // ignore
+        }
+        await (this.agent as any).runAgent(input, subscriber, {
+          signal: abortSignal,
+        });
       }
-      await (this.agent as any).runAgent(input, subscriber, {
-        signal: abortSignal,
-      });
     } catch (error) {
       if (!abortSignal.aborted) {
         const err = error instanceof Error ? error : new Error(String(error));
@@ -537,6 +563,64 @@ export class AgUiThreadRuntimeCore {
       const err = this.pendingError;
       this.pendingError = null;
       throw err;
+    }
+  }
+
+  // Replays a persisted run's snapshots into the existing assistant message, bypassing agent.runAgent so it is not re-invoked.
+  private async consumeResumeStream(
+    stream: ResumeStream,
+    ctx: {
+      runConfig: RunConfig;
+      threadId: string;
+      parentId: string | null;
+      historicalMessages: readonly ThreadMessage[];
+      abortSignal: AbortSignal;
+      ensureAssistant: () => string;
+      applyUpdate: (update: ChatModelRunResult) => void;
+      getAssistantMessageId: () => string | undefined;
+    },
+  ): Promise<void> {
+    const assistantId = ctx.ensureAssistant();
+    const currentId = () => ctx.getAssistantMessageId() ?? assistantId;
+    const options: ChatModelRunOptions = {
+      messages: ctx.historicalMessages,
+      runConfig: ctx.runConfig,
+      abortSignal: ctx.abortSignal,
+      context: this.runtime?.thread.getModelContext() ?? {},
+      unstable_assistantMessageId: assistantId,
+      unstable_threadId: ctx.threadId,
+      unstable_parentId: ctx.parentId,
+      unstable_getMessage: () => {
+        const message = this.messages.find((m) => m.id === currentId());
+        if (!message) {
+          throw new Error(
+            "[agui] resume stream requested the assistant message before it existed",
+          );
+        }
+        return message;
+      },
+    };
+
+    try {
+      for await (const result of stream(options)) {
+        if (ctx.abortSignal.aborted) return;
+        ctx.applyUpdate(result);
+      }
+    } catch (error) {
+      if (ctx.abortSignal.aborted) return;
+      const err = error instanceof Error ? error : new Error(String(error));
+      ctx.applyUpdate({
+        status: { type: "incomplete", reason: "error", error: err.message },
+      });
+      this.onError?.(err);
+      this.pendingError = this.pendingError ?? err;
+      return;
+    }
+
+    if (ctx.abortSignal.aborted) return;
+    const current = this.messages.find((m) => m.id === currentId());
+    if (!current || current.status?.type === "running") {
+      ctx.applyUpdate({ status: { type: "complete", reason: "unknown" } });
     }
   }
 
