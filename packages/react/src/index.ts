@@ -136,6 +136,12 @@ export type {
   ExternalStoreThreadListAdapter,
   ExternalStoreThreadData,
 } from "@assistant-ui/core";
+export {
+  createMessageQueue,
+  type MessageQueueDriver,
+  type MessageQueueController,
+  type ExternalThreadQueueAdapter,
+} from "@assistant-ui/core";
 export { useExternalStoreRuntime } from "./legacy-runtime/runtime-cores/external-store/useExternalStoreRuntime";
 export { useExternalStoreSharedOptions } from "@assistant-ui/core/react";
 export {
@@ -366,7 +372,6 @@ export {
   ExternalThread,
   type ExternalThreadProps,
   type ExternalThreadMessage,
-  type ExternalThreadQueueAdapter,
 } from "./client/ExternalThread";
 export {
   InMemoryThreadList,

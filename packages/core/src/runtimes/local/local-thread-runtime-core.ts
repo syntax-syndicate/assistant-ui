@@ -22,6 +22,14 @@ import type {
 } from "../../types/message";
 import type { RunConfig } from "../../types/message";
 import type { ModelContextProvider } from "../../model-context/types";
+import {
+  createMessageQueue,
+  type MessageQueueController,
+} from "../../runtime/queue/message-queue";
+import {
+  EMPTY_QUEUE_ITEMS,
+  type QueueItemState,
+} from "../../store/scopes/queue-item";
 
 class AbortError extends Error {
   override name = "AbortError";
@@ -53,6 +61,9 @@ export class LocalThreadRuntimeCore
   };
 
   private abortController: AbortController | null = null;
+
+  private _queue: MessageQueueController | null = null;
+  private _queueRunInFlight = false;
 
   public readonly isDisabled = false;
   public readonly isSendDisabled = false;
@@ -139,6 +150,31 @@ export class LocalThreadRuntimeCore
       hasUpdates = true;
     }
 
+    const canQueue = options.unstable_enableMessageQueue === true;
+    if (canQueue && !this._queue) {
+      this._queue = createMessageQueue({
+        run: (message) => {
+          // release the queue when the dispatch settles, even if it rejects
+          // before reaching startRun's finally, so a failure can't deadlock it
+          this._queueRunInFlight = true;
+          void this._runAppend(message)
+            .finally(() => {
+              this._queueRunInFlight = false;
+              this._queue?.notifyIdle();
+            })
+            .catch(() => {});
+        },
+      });
+      this._queue.subscribe(() => this._notifySubscribers());
+    } else if (!canQueue && this._queue) {
+      this._queue.adapter.clear("cancel-run");
+      this._queue = null;
+    }
+    if (this.capabilities.queue !== canQueue) {
+      this.capabilities.queue = canQueue;
+      hasUpdates = true;
+    }
+
     if (hasUpdates) this._notifySubscribers();
   }
 
@@ -183,6 +219,31 @@ export class LocalThreadRuntimeCore
   }
 
   public async append(message: AppendMessage): Promise<void> {
+    const isTail = message.parentId === (this.messages.at(-1)?.id ?? null);
+    const willRun = message.startRun ?? message.role === "user";
+    if (this._queue && willRun && isTail) {
+      this._queue.adapter.enqueue(message, { steer: message.steer ?? false });
+      return;
+    }
+    if (this._queue && !isTail) this._queue.adapter.clear("edit");
+    return this._runAppend(message);
+  }
+
+  public getQueueItems(): readonly QueueItemState[] {
+    // Reads can arrive during base-thread construction, before the queue field
+    // is assigned, so guard against the unset field.
+    return this._queue?.adapter.items ?? EMPTY_QUEUE_ITEMS;
+  }
+
+  public steerQueueItem(queueItemId: string): void {
+    this._queue?.adapter.steer(queueItemId);
+  }
+
+  public removeQueueItem(queueItemId: string): void {
+    this._queue?.adapter.remove(queueItemId);
+  }
+
+  private async _runAppend(message: AppendMessage): Promise<void> {
     this.ensureInitialized();
 
     const initPromise = this._getInitializePromise?.();
@@ -254,6 +315,8 @@ export class LocalThreadRuntimeCore
     this._notifyEventSubscribers("runStart", {});
 
     try {
+      // mark busy for runs not started through the queue (regenerate, resume)
+      this._queue?.notifyBusy();
       this._suggestions = [];
       this._suggestionsController?.abort();
       this._suggestionsController = null;
@@ -270,6 +333,11 @@ export class LocalThreadRuntimeCore
       } while (shouldContinue(message, this._options.unstable_humanToolNames));
     } finally {
       this._notifyEventSubscribers("runEnd", {});
+      // queue-driven runs release from the driver settle handler; a direct
+      // run (regenerate, resume) releases here
+      if (!this._queueRunInFlight) {
+        queueMicrotask(() => this._queue?.notifyIdle());
+      }
     }
 
     this._suggestionsController = new AbortController();
@@ -474,12 +542,14 @@ export class LocalThreadRuntimeCore
   }
 
   public detach() {
+    this._queue?.adapter.clear("cancel-run");
     const error = new AbortError(true);
     this.abortController?.abort(error);
     this.abortController = null;
   }
 
   public cancelRun() {
+    this._queue?.adapter.clear("cancel-run");
     const error = new AbortError(false);
     this.abortController?.abort(error);
     this.abortController = null;
