@@ -911,7 +911,9 @@ export class AgUiThreadRuntimeCore {
 
   private importMessagesSnapshot(rawMessages: readonly unknown[]) {
     try {
-      const normalized = fromAgUiMessages(rawMessages);
+      const normalized = fromAgUiMessages(rawMessages, {
+        showThinking: this.showThinking,
+      });
       const converted: ThreadMessage[] = [];
       for (const message of normalized) {
         try {

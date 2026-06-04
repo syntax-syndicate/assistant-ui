@@ -361,7 +361,9 @@ function toUserOrSystemSnapshotMessage(
 
 export function fromAgUiMessages(
   messages: readonly unknown[],
+  options?: { showThinking?: boolean },
 ): ThreadMessageLike[] {
+  const showThinking = options?.showThinking ?? true;
   const converted: ThreadMessageLike[] = [];
 
   for (const rawMessage of messages) {
@@ -462,6 +464,20 @@ export function fromAgUiMessages(
       continue;
     }
 
+    if (role === "reasoning") {
+      // Gate on showThinking so a cold reload matches the live run: the
+      // aggregator never stores reasoning parts when showThinking is false.
+      if (!showThinking) continue;
+      const text = extractText(rawMessage.content);
+      if (text.trim().length === 0) continue;
+      converted.push({
+        id: getString(rawMessage, "id") ?? generateId(),
+        role: "assistant",
+        content: [{ type: "reasoning", text }],
+      });
+      continue;
+    }
+
     if (role === "user" || role === "system") {
       converted.push(toUserOrSystemSnapshotMessage(role, rawMessage));
     }
@@ -485,6 +501,12 @@ function convertAssistantMessage(
     ...normalizeToolCall(part),
     part,
   }));
+
+  // Drop assistant messages with no text or tool calls (e.g. an imported
+  // reasoning-only entry) so they are not re-sent as a blank assistant turn.
+  if (content.length === 0 && toolCalls.length === 0) {
+    return;
+  }
 
   const assistantMessage: AgUiMessage = {
     id: message.id,
