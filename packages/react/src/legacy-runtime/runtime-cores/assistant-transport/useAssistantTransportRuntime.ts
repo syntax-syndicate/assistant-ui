@@ -27,6 +27,10 @@ import type {
   SendCommandsRequestBody,
 } from "./types";
 import { useCommandQueue } from "./commandQueue";
+import {
+  createReplayBoundaryStream,
+  useReplayRenderWait,
+} from "./replayBoundaryStream";
 import { useRunManager } from "./runManager";
 import { useConvertedState } from "./useConvertedState";
 import type { ToolExecutionStatus } from "@assistant-ui/core";
@@ -116,6 +120,8 @@ const useAssistantTransportThreadRuntime = <T>(
   const agentStateRef = useRef(options.initialState);
   const [, rerender] = useState(0);
   const resumeFlagRef = useRef(false);
+  const [isReplaying, setIsReplaying] = useState(false);
+  const waitForReplayRender = useReplayRenderWait();
   const parentIdRef = useRef<string | null | undefined>(undefined);
   const commandQueue = useCommandQueue({
     onQueue: () => runManager.schedule(),
@@ -127,6 +133,7 @@ const useAssistantTransportThreadRuntime = <T>(
     onRun: async (signal: AbortSignal) => {
       const isResume = resumeFlagRef.current;
       resumeFlagRef.current = false;
+      setIsReplaying(false);
       const commands: QueuedCommand[] = isResume ? [] : commandQueue.flush();
       if (commands.length === 0 && !isResume)
         throw new Error("No commands to send");
@@ -182,6 +189,11 @@ const useAssistantTransportThreadRuntime = <T>(
         throw new Error("Response body is null");
       }
 
+      const body = await createReplayBoundaryStream(response, {
+        setReplaying: setIsReplaying,
+        waitForRender: waitForReplayRender,
+      });
+
       // Select decoder based on protocol option
       const protocol = options.protocol ?? "data-stream";
       const decoder =
@@ -190,7 +202,7 @@ const useAssistantTransportThreadRuntime = <T>(
           : new DataStreamDecoder();
 
       let err: string | undefined;
-      const stream = response.body.pipeThrough(decoder).pipeThrough(
+      const stream = body.pipeThrough(decoder).pipeThrough(
         new AssistantMessageAccumulator({
           initialMessage: createInitialMessage({
             unstable_state:
@@ -223,6 +235,7 @@ const useAssistantTransportThreadRuntime = <T>(
     },
     onFinish: options.onFinish,
     onCancel: () => {
+      setIsReplaying(false);
       const cmds = [
         ...commandQueue.state.inTransit,
         ...commandQueue.state.queued,
@@ -239,6 +252,7 @@ const useAssistantTransportThreadRuntime = <T>(
       });
     },
     onError: async (error) => {
+      setIsReplaying(false);
       const inTransitCmds = [...commandQueue.state.inTransit];
       const queuedCmds = [...commandQueue.state.queued];
 
@@ -288,6 +302,7 @@ const useAssistantTransportThreadRuntime = <T>(
     messages: converted.messages,
     state: converted.state,
     isRunning: converted.isRunning,
+    isLoading: isReplaying,
     adapters: options.adapters,
     unstable_enableToolInvocations: true,
     setToolStatuses,
