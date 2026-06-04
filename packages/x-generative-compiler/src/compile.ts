@@ -140,7 +140,7 @@ export function compileGenerative(
   // such entries pass through.
   ensureDefaultExport(ast, filename);
   const generativeInstances = collectGenerativeInstances(ast);
-  const safeToolkitSpreads = collectSafeToolkitSpreads(ast);
+  const safeToolkitSpreads = collectSafeToolkitSpreads(ast, filename);
 
   const flags: TargetFlags = { keptRender: false, keptBackendExecute: false };
 
@@ -348,11 +348,14 @@ function resolvePackageJson(
 }
 
 function normalizeRequirePath(filename: string | undefined): string {
-  if (filename) {
-    const cleanFilename = filename.split(/[?#]/, 1)[0]!;
-    if (nodePath.isAbsolute(cleanFilename)) return cleanFilename;
-  }
-  return import.meta.url;
+  return cleanAbsoluteFilename(filename) ?? import.meta.url;
+}
+
+/** Strips a `?query`/`#hash` suffix and returns the path only if it is absolute. */
+function cleanAbsoluteFilename(filename: string | undefined): string | null {
+  if (!filename) return null;
+  const clean = filename.split(/[?#]/, 1)[0]!;
+  return nodePath.isAbsolute(clean) ? clean : null;
 }
 
 function findPackageJson(
@@ -431,11 +434,12 @@ function ensureDefaultExport(ast: t.File, filename: string | undefined): void {
   if (!def) {
     throw new GenerativeCompileError("missing a default export", filename);
   }
-  if (!unwrapToCall(def.declaration, TOOLKIT_WRAPPER)) {
+  if (!unwrapToToolkitCall(def.declaration)) {
     throw new GenerativeCompileError(
-      `the default export must be ${TOOLKIT_WRAPPER}({ ... }) (imported from ` +
-        '"@assistant-ui/react"); wrapping is required so a backend `execute` ' +
-        "can't be authored in a way that reaches the client",
+      `the default export must be ${TOOLKIT_WRAPPER}({ ... }) or ` +
+        `${MCP_TOOLKIT_WRAPPER}({ ... }) (imported from "@assistant-ui/react"); ` +
+        "wrapping is required so a backend `execute` can't be authored in a way " +
+        "that reaches the client",
       filename,
     );
   }
@@ -483,22 +487,307 @@ function collectGenerativeInstances(ast: t.File): Set<string> {
 }
 
 /**
- * Local toolkit variables whose initializer is visible to this compiler pass
- * are safe to spread. `defineToolkit(...)` initializers are compiled in-place
- * before a later spread reads them; `defineMcpToolkit(...)` entries cannot
- * contain executable code.
+ * Toolkit identifiers that are safe to spread into a `defineToolkit({ ... })`.
+ *
+ * Two kinds qualify:
+ *
+ * - A local variable whose initializer is visible to this compiler pass: a
+ *   `defineToolkit(...)` binding is compiled in-place before a later spread
+ *   reads it, and `defineMcpToolkit(...)` entries can't contain executable code.
+ * - The default import of another `"use generative"` module: that module is
+ *   split per-target by its own compiler pass, so spreading its default-exported
+ *   toolkit can't leak a backend `execute` to the client. Only the default
+ *   export crosses the generative-module boundary, so named imports don't
+ *   qualify — they would be `undefined` once that module is build-split.
  */
-function collectSafeToolkitSpreads(ast: t.File): Set<string> {
+function collectSafeToolkitSpreads(
+  ast: t.File,
+  filename: string | undefined,
+): Set<string> {
   const names = new Set<string>();
+  const generativeBySource = new Map<string, boolean>();
+
   for (const statement of ast.program.body) {
-    if (!t.isVariableDeclaration(statement)) continue;
-    for (const declaration of statement.declarations) {
-      const { id, init } = declaration;
-      if (!t.isIdentifier(id) || !init) continue;
-      if (unwrapToToolkitCall(init)) names.add(id.name);
+    if (t.isVariableDeclaration(statement)) {
+      for (const declaration of statement.declarations) {
+        const { id, init } = declaration;
+        if (t.isIdentifier(id) && init && unwrapToToolkitCall(init)) {
+          names.add(id.name);
+        }
+      }
+      continue;
+    }
+
+    if (t.isImportDeclaration(statement)) {
+      const defaultSpecifier = statement.specifiers.find(
+        (specifier): specifier is t.ImportDefaultSpecifier =>
+          t.isImportDefaultSpecifier(specifier),
+      );
+      if (!defaultSpecifier) continue;
+
+      const source = statement.source.value;
+      let isGenerative = generativeBySource.get(source);
+      if (isGenerative === undefined) {
+        isGenerative = isGenerativeImport(source, filename);
+        generativeBySource.set(source, isGenerative);
+      }
+      if (isGenerative) names.add(defaultSpecifier.local.name);
     }
   }
+
   return names;
+}
+
+const MODULE_EXTENSIONS = [
+  ".ts",
+  ".tsx",
+  ".mts",
+  ".cts",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+] as const;
+
+/** Extensions a specifier may carry that actually map to a TS source file. */
+const REWRITABLE_JS_EXTENSIONS = new Set([".js", ".jsx", ".mjs", ".cjs"]);
+
+/**
+ * Whether an import specifier resolves on disk to a `"use generative"` module.
+ * Relative specifiers and `tsconfig` path aliases (e.g. `@/tools`) are resolved;
+ * anything else (a bare package, an unresolvable alias) is treated as
+ * non-generative, and thus an unsafe spread.
+ */
+function isGenerativeImport(
+  source: string,
+  filename: string | undefined,
+): boolean {
+  const cleanFilename = cleanAbsoluteFilename(filename);
+  if (!cleanFilename) return false;
+
+  const resolved = resolveImportedModuleFile(source, cleanFilename);
+  if (!resolved) return false;
+
+  try {
+    return isGenerativeModule(readFileSync(resolved, "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+/** Resolves an import specifier (relative or `tsconfig`-aliased) to a file on disk. */
+function resolveImportedModuleFile(
+  source: string,
+  fromFilename: string,
+): string | null {
+  if (source.startsWith(".")) {
+    const base = nodePath.resolve(nodePath.dirname(fromFilename), source);
+    return resolveModuleFileAtPath(base);
+  }
+  return resolveAliasImport(source, fromFilename);
+}
+
+/**
+ * Resolves a candidate module path, trying TS/JS extensions then index files. A
+ * specifier may carry a `.js`-family extension that maps to a `.ts`/`.tsx`
+ * source (TypeScript's `bundler`/`nodenext` resolution), so the extension is
+ * dropped before probing.
+ */
+function resolveModuleFileAtPath(base: string): string | null {
+  const ext = nodePath.extname(base);
+  if (ext && existsSync(base)) return base;
+
+  const stem = REWRITABLE_JS_EXTENSIONS.has(ext)
+    ? base.slice(0, -ext.length)
+    : base;
+
+  for (const candidateExt of MODULE_EXTENSIONS) {
+    const candidate = `${stem}${candidateExt}`;
+    if (existsSync(candidate)) return candidate;
+  }
+  for (const candidateExt of MODULE_EXTENSIONS) {
+    const candidate = nodePath.join(base, `index${candidateExt}`);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+interface TsconfigAliases {
+  /** Absolute directory that `paths` targets resolve against. */
+  baseDir: string;
+  paths: Record<string, string[]>;
+}
+
+/** Resolves a `tsconfig` path alias (e.g. `@/tools/x`) to a file on disk. */
+function resolveAliasImport(
+  source: string,
+  fromFilename: string,
+): string | null {
+  const tsconfig = loadTsconfigAliases(nodePath.dirname(fromFilename));
+  if (!tsconfig) return null;
+
+  // TypeScript matches the most specific key first: an exact (wildcard-free) key
+  // beats a wildcard one, and a longer static prefix beats a shorter one.
+  const patterns = Object.entries(tsconfig.paths).sort(
+    ([a], [b]) => aliasSpecificity(b) - aliasSpecificity(a),
+  );
+
+  for (const [pattern, targets] of patterns) {
+    const matched = matchAliasPattern(pattern, source);
+    if (matched === null) continue;
+
+    for (const target of targets) {
+      const specifier = substituteAliasWildcard(target, matched);
+      const file = resolveModuleFileAtPath(
+        nodePath.resolve(tsconfig.baseDir, specifier),
+      );
+      if (file) return file;
+    }
+  }
+  return null;
+}
+
+/** Ranks a `paths` key: an exact key outranks any wildcard; longer prefixes win. */
+function aliasSpecificity(pattern: string): number {
+  const star = pattern.indexOf("*");
+  return star === -1 ? pattern.length + 1 : star;
+}
+
+/** Substitutes the single `*` in a `paths` target with the matched text. */
+function substituteAliasWildcard(target: string, matched: string): string {
+  const star = target.indexOf("*");
+  if (star === -1) return target;
+  return target.slice(0, star) + matched + target.slice(star + 1);
+}
+
+/**
+ * Matches an import specifier against a `tsconfig` `paths` key. Returns the text
+ * captured by the key's `*` (or `""` for an exact, wildcard-free key), or `null`
+ * when the specifier doesn't match.
+ */
+function matchAliasPattern(pattern: string, source: string): string | null {
+  const star = pattern.indexOf("*");
+  if (star === -1) return pattern === source ? "" : null;
+
+  const prefix = pattern.slice(0, star);
+  const suffix = pattern.slice(star + 1);
+  if (
+    source.length >= prefix.length + suffix.length &&
+    source.startsWith(prefix) &&
+    source.endsWith(suffix)
+  ) {
+    return source.slice(prefix.length, source.length - suffix.length);
+  }
+  return null;
+}
+
+/**
+ * Memoizes resolved aliases per start directory. The compiler runs once per
+ * file across a build, so without this every aliased spread re-walks and
+ * re-parses the same `tsconfig.json`. Process-lifetime, like
+ * `checkedCorePackageJsonPaths`.
+ */
+const tsconfigAliasesByDir = new Map<string, TsconfigAliases | null>();
+
+/** Walks up from a directory to the nearest `tsconfig.json` that declares `paths`. */
+function loadTsconfigAliases(fromDir: string): TsconfigAliases | null {
+  const cached = tsconfigAliasesByDir.get(fromDir);
+  if (cached !== undefined) return cached;
+
+  let aliases: TsconfigAliases | null = null;
+  let dir = fromDir;
+  for (;;) {
+    const tsconfigPath = nodePath.join(dir, "tsconfig.json");
+    if (existsSync(tsconfigPath)) {
+      aliases = readTsconfigAliases(tsconfigPath, new Set());
+      if (aliases) break;
+    }
+    const parent = nodePath.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  tsconfigAliasesByDir.set(fromDir, aliases);
+  return aliases;
+}
+
+/** Reads `baseUrl`/`paths` from a tsconfig, following a single `extends` chain. */
+function readTsconfigAliases(
+  tsconfigPath: string,
+  seen: Set<string>,
+): TsconfigAliases | null {
+  if (seen.has(tsconfigPath)) return null;
+  seen.add(tsconfigPath);
+
+  let config: {
+    extends?: string | string[];
+    compilerOptions?: { baseUrl?: string; paths?: Record<string, string[]> };
+  } | null;
+  try {
+    config = parseJsonc(readFileSync(tsconfigPath, "utf8"));
+  } catch {
+    return null;
+  }
+  if (!config) return null;
+
+  const configDir = nodePath.dirname(tsconfigPath);
+  const { baseUrl, paths } = config.compilerOptions ?? {};
+
+  if (paths) {
+    return {
+      baseDir: baseUrl ? nodePath.resolve(configDir, baseUrl) : configDir,
+      paths,
+    };
+  }
+
+  // `extends` may be a string or (TS 5.0+) a string array; later entries take
+  // precedence, so try them last-first. Parsed from untrusted JSONC, so the
+  // array case is a real runtime shape, not just a type.
+  const extendsList = Array.isArray(config.extends)
+    ? config.extends
+    : config.extends
+      ? [config.extends]
+      : [];
+  for (let i = extendsList.length - 1; i >= 0; i--) {
+    const entry = extendsList[i];
+    if (typeof entry !== "string") continue;
+    const extended = resolveExtendedTsconfig(entry, configDir);
+    if (extended) {
+      const aliases = readTsconfigAliases(extended, seen);
+      if (aliases) return aliases;
+    }
+  }
+  return null;
+}
+
+/** Resolves a tsconfig `extends` value (relative path or installed package). */
+function resolveExtendedTsconfig(
+  extendsValue: string,
+  configDir: string,
+): string | null {
+  if (extendsValue.startsWith(".")) {
+    const base = nodePath.resolve(configDir, extendsValue);
+    const candidates =
+      nodePath.extname(base) === ".json" ? [base] : [`${base}.json`, base];
+    return candidates.find((candidate) => existsSync(candidate)) ?? null;
+  }
+  try {
+    return createRequire(nodePath.join(configDir, "package.json")).resolve(
+      extendsValue.endsWith(".json") ? extendsValue : `${extendsValue}.json`,
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** Parses JSON with `//` and block comments and trailing commas stripped (tsconfig is JSONC). */
+function parseJsonc(text: string): any {
+  const withoutComments = text.replace(
+    /"(?:[^"\\]|\\.)*"|\/\/[^\n\r]*|\/\*[\s\S]*?\*\//g,
+    (match) => (match.startsWith('"') ? match : ""),
+  );
+  const withoutTrailingCommas = withoutComments.replace(/,(\s*[}\]])/g, "$1");
+  return JSON.parse(withoutTrailingCommas);
 }
 
 function unwrapToToolkitCall(node: t.Node): t.CallExpression | null {

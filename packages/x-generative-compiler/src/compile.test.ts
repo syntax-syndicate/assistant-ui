@@ -73,6 +73,50 @@ function createCompatibilityFixture(range: string | null): string {
   return filename;
 }
 
+/**
+ * Writes a child module to disk next to a (not-yet-written) `toolkit.tsx` and
+ * returns the parent's filename, so a parent compiled from a string can resolve
+ * `./tools/child` relative to it. Used to exercise cross-file toolkit spreads.
+ */
+function createMergeFixture(childSource: string): string {
+  const appRoot = mkdtempSync(nodePath.join(tmpdir(), "aui-generative-merge-"));
+  const toolsRoot = nodePath.join(appRoot, "src", "tools");
+  mkdirSync(toolsRoot, { recursive: true });
+  writeFileSync(nodePath.join(toolsRoot, "weather.tsx"), childSource);
+  return nodePath.join(appRoot, "src", "toolkit.tsx");
+}
+
+/**
+ * Like {@link createMergeFixture}, but also writes a (JSONC) `tsconfig.json`
+ * with a `@/*` path alias so alias resolution can be exercised. The child lives
+ * at `src/tools/weather.tsx` and `@/*` maps to `./src/*`.
+ */
+function createAliasMergeFixture(childSource: string): string {
+  const filename = createMergeFixture(childSource);
+  const appRoot = nodePath.dirname(nodePath.dirname(filename));
+  writeFileSync(
+    nodePath.join(appRoot, "tsconfig.json"),
+    `{
+  // path aliases
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": { "@/*": ["./src/*"] },
+  }
+}`,
+  );
+  return filename;
+}
+
+const generativeChild = `"use generative";
+import { defineToolkit } from "@assistant-ui/react";
+export default defineToolkit({
+  get_weather: {
+    execute: async () => 1,
+    render: () => null,
+  },
+});
+`;
+
 const source = `"use generative";
 import { z } from "zod";
 import { db } from "@/db";
@@ -495,6 +539,139 @@ export default defineToolkit({
     expect(() => compileGenerative(src, { target: "client" })).toThrow(
       /compiler-visible toolkit spread/,
     );
+  });
+
+  it("allows spreading the default import of a generative module", () => {
+    const filename = createMergeFixture(generativeChild);
+    const src = `"use generative";
+import { defineToolkit } from "@assistant-ui/react";
+import weatherTools from "./tools/weather";
+export default defineToolkit({
+  ...weatherTools,
+});`;
+
+    const server = compileGenerative(src, { target: "server", filename }).code;
+    expect(server).toContain("...weatherTools");
+    expect(server).toContain('from "./tools/weather"');
+
+    const client = compileGenerative(src, { target: "client", filename }).code;
+    expect(client).toContain("...weatherTools");
+    expect(client).toContain('from "./tools/weather"');
+  });
+
+  it("rejects spreading the default import of a non-generative module", () => {
+    const filename = createMergeFixture(
+      `export default { get_weather: { execute: async () => 1 } };\n`,
+    );
+    const src = `"use generative";
+import { defineToolkit } from "@assistant-ui/react";
+import weatherTools from "./tools/weather";
+export default defineToolkit({
+  ...weatherTools,
+});`;
+
+    expect(() =>
+      compileGenerative(src, { target: "client", filename }),
+    ).toThrow(/compiler-visible toolkit spread/);
+  });
+
+  it("rejects spreading a named import even from a generative module", () => {
+    const filename = createMergeFixture(generativeChild);
+    const src = `"use generative";
+import { defineToolkit } from "@assistant-ui/react";
+import { weatherTools } from "./tools/weather";
+export default defineToolkit({
+  ...weatherTools,
+});`;
+
+    expect(() =>
+      compileGenerative(src, { target: "client", filename }),
+    ).toThrow(/compiler-visible toolkit spread/);
+  });
+
+  it("resolves a tsconfig path alias when spreading a generative module", () => {
+    const filename = createAliasMergeFixture(generativeChild);
+    const src = `"use generative";
+import { defineToolkit } from "@assistant-ui/react";
+import weatherTools from "@/tools/weather";
+export default defineToolkit({
+  ...weatherTools,
+});`;
+
+    const client = compileGenerative(src, { target: "client", filename }).code;
+    expect(client).toContain("...weatherTools");
+    expect(client).toContain('from "@/tools/weather"');
+  });
+
+  it("prefers the most specific tsconfig path alias", () => {
+    const appRoot = mkdtempSync(
+      nodePath.join(tmpdir(), "aui-generative-alias-spec-"),
+    );
+    mkdirSync(nodePath.join(appRoot, "src", "tools"), { recursive: true });
+    mkdirSync(nodePath.join(appRoot, "generated"), { recursive: true });
+    // The broader `@/*` alias would resolve here — a non-generative module.
+    writeFileSync(
+      nodePath.join(appRoot, "src", "tools", "weather.tsx"),
+      `export default { get_weather: { execute: async () => 1 } };\n`,
+    );
+    // The more specific `@/tools/*` alias resolves to the generative module.
+    writeFileSync(
+      nodePath.join(appRoot, "generated", "weather.tsx"),
+      generativeChild,
+    );
+    writeFileSync(
+      nodePath.join(appRoot, "tsconfig.json"),
+      `{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@/tools/*": ["./generated/*"]
+    }
+  }
+}`,
+    );
+    const filename = nodePath.join(appRoot, "src", "toolkit.tsx");
+    const src = `"use generative";
+import { defineToolkit } from "@assistant-ui/react";
+import weatherTools from "@/tools/weather";
+export default defineToolkit({
+  ...weatherTools,
+});`;
+
+    // `@/tools/*` is more specific than `@/*`, so it wins and the spread is the
+    // generative module (allowed) rather than the non-generative `@/*` target.
+    const client = compileGenerative(src, { target: "client", filename }).code;
+    expect(client).toContain("...weatherTools");
+  });
+
+  it("resolves a .js specifier to its .tsx source when spreading", () => {
+    const filename = createMergeFixture(generativeChild);
+    const src = `"use generative";
+import { defineToolkit } from "@assistant-ui/react";
+import weatherTools from "./tools/weather.js";
+export default defineToolkit({
+  ...weatherTools,
+});`;
+
+    const client = compileGenerative(src, { target: "client", filename }).code;
+    expect(client).toContain("...weatherTools");
+  });
+
+  it("allows defineMcpToolkit as the default export", () => {
+    const src = `"use generative";
+import { defineMcpToolkit } from "@assistant-ui/react";
+export default defineMcpToolkit({
+  docs: { type: "http", url: "https://mcp.example.com/mcp" },
+});`;
+
+    const server = compileGenerative(src, { target: "server" }).code;
+    expect(server).toContain("defineMcpToolkit");
+    expect(server).toContain("docs");
+
+    const client = compileGenerative(src, { target: "client" }).code;
+    expect(client).toContain("defineMcpToolkit");
+    expect(client).toContain("docs");
   });
 
   it("still allows a flat toolkit tool named tools", () => {
