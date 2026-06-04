@@ -196,13 +196,7 @@ export {
   type ToolkitDefinition,
   type ToolkitDefinitionEntry,
   type ToolCallText,
-  defineToolkit,
-  stubTool,
-  externalTool,
   useAuiToolOverrides,
-  hitl,
-  hitlTool,
-  providerTool,
   type ProviderToolConfig,
   defineMcpToolkit,
   type McpToolkitDefinition,
@@ -215,6 +209,17 @@ export {
   useToolArgsStatus,
   type ToolArgsStatus,
 } from "@assistant-ui/core/react";
+
+// Ink runs single-process with no client/server boundary, so these are real
+// runtime helpers rather than the compiler-stripped markers used on web/RN.
+export {
+  defineToolkit,
+  hitl,
+  hitlTool,
+  stubTool,
+  providerTool,
+} from "./toolkit";
+
 export type {
   ModelContext,
   ModelContextProvider,
