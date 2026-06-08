@@ -25,11 +25,17 @@ If you only need message streaming, [DataStream](/docs/runtimes/custom/data-stre
 
 ## Mental model
 
-```mermaid
-graph LR
+<Flow.Root
+  llm={`graph LR
     Frontend -->|Commands| Agent[Agent server]
-    Agent -->|State snapshots| Frontend
-```
+    Agent -->|State snapshots| Frontend`}
+>
+  <Flow.Row>
+    <Flow.Node>Frontend</Flow.Node>
+    <Flow.Arrow label="Commands" reverseLabel="State snapshots" length={150} />
+    <Flow.Node>Agent server</Flow.Node>
+  </Flow.Row>
+</Flow.Root>
 
 The frontend receives state snapshots and converts them to React components. The UI is a stateless view on top of the agent state.
 
@@ -37,21 +43,57 @@ The agent server receives commands from the frontend. When a user interacts with
 
 ### Command lifecycle
 
-```mermaid
-graph LR
+<Flow.Root
+  llm={`graph LR
     queued -->|sent to backend| in_transit
-    in_transit -->|backend processes| applied
-```
+    in_transit -->|backend processes| applied`}
+>
+  <Flow.Row>
+    <Flow.Node>queued</Flow.Node>
+    <Flow.Arrow label="sent to backend" length={120} />
+    <Flow.Node>in_transit</Flow.Node>
+    <Flow.Arrow label="backend processes" length={132} />
+    <Flow.Node>applied</Flow.Node>
+  </Flow.Row>
+</Flow.Root>
 
 The runtime alternates between **idle** (no active backend request) and **sending** (request in flight). When a new command is created while idle, it is sent immediately; otherwise it is queued until the current request completes.
 
-```mermaid
-graph LR
+<Flow.Root
+  llm={`graph LR
     idle -->|new command| sending
     sending -->|request completes| check{check queue}
     check -->|queue has commands| sending
-    check -->|queue empty| idle
-```
+    check -->|queue empty| idle`}
+>
+  <Flow.Canvas
+    edges={[
+      {
+        from: "check",
+        to: "sending",
+        route: "loop-bottom",
+        label: "queue has commands",
+        laneOffset: 28,
+      },
+      {
+        from: "check",
+        to: "idle",
+        route: "loop-bottom",
+        label: "queue empty",
+        laneOffset: 60,
+      },
+    ]}
+  >
+    <Flow.Row>
+      <Flow.Node flowId="idle">idle</Flow.Node>
+      <Flow.Arrow label="new command" length={108} />
+      <Flow.Node flowId="sending">sending</Flow.Node>
+      <Flow.Arrow label="request completes" length={132} />
+      <Flow.Node flowId="check" variant="decision">check queue</Flow.Node>
+    </Flow.Row>
+    <div className="h-20" aria-hidden />
+  </Flow.Canvas>
+</Flow.Root>
 
 To implement this you build two pieces:
 

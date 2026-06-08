@@ -7,8 +7,8 @@ assistant-ui exposes runtime integrations at three layers. Understanding which l
 
 ## The three layers
 
-```mermaid
-graph TD
+<Flow.Root
+  llm={`graph TD
     subgraph Framework["Framework adapters"]
       A1[react-ai-sdk]
       A2[react-langgraph]
@@ -34,8 +34,50 @@ graph TD
     A6 --> C2
     A7 --> C2
     P1 --> C1
-    P2 --> C2
-```
+    P2 --> C2`}
+>
+  <Flow.Canvas
+    edges={[
+      { from: "datastream", to: "local", route: "down", midFrac: 0.4, laneOffset: -60 },
+      { from: "transport", to: "external", route: "down", midFrac: 0.65, toOffset: -14 },
+      { from: "adapters", to: "external", route: "down", midFrac: 0.4, toOffset: 14 },
+    ]}
+  >
+    <div className="grid max-w-2xl grid-cols-[1fr_1.6fr] gap-4">
+      <Flow.Group>
+        <Flow.GroupLabel>Protocol layers</Flow.GroupLabel>
+        <Flow.Column className="items-stretch gap-5">
+          <Flow.Row className="justify-start">
+            <Flow.Node flowId="datastream">DataStream</Flow.Node>
+          </Flow.Row>
+          <Flow.Row className="justify-end">
+            <Flow.Node flowId="transport">AssistantTransport</Flow.Node>
+          </Flow.Row>
+        </Flow.Column>
+      </Flow.Group>
+      <Flow.Group flowId="adapters">
+        <Flow.GroupLabel>Framework adapters</Flow.GroupLabel>
+        <Flow.Row className="flex-wrap justify-start">
+          <Flow.Node>react-ai-sdk</Flow.Node>
+          <Flow.Node>react-langgraph</Flow.Node>
+          <Flow.Node>react-langchain</Flow.Node>
+          <Flow.Node>react-google-adk</Flow.Node>
+          <Flow.Node>react-a2a</Flow.Node>
+          <Flow.Node>react-ag-ui</Flow.Node>
+          <Flow.Node>react-opencode</Flow.Node>
+        </Flow.Row>
+      </Flow.Group>
+    </div>
+    <div className="h-14" aria-hidden />
+    <Flow.Group className="mx-auto w-fit">
+      <Flow.GroupLabel>Core runtimes</Flow.GroupLabel>
+      <Flow.Row className="gap-10">
+        <Flow.Node flowId="local">LocalRuntime</Flow.Node>
+        <Flow.Node flowId="external">ExternalStoreRuntime</Flow.Node>
+      </Flow.Row>
+    </Flow.Group>
+  </Flow.Canvas>
+</Flow.Root>
 
 Each upper layer is implemented in terms of a lower one. You can drop down a layer whenever you need more control, but most users start at the framework layer and never touch the others.
 
