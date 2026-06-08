@@ -1,3 +1,9 @@
+export interface EventLogEntry {
+  readonly time: Date;
+  readonly event: string;
+  readonly data: unknown;
+}
+
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
@@ -27,6 +33,17 @@ export const formatDateTime = (value: string | undefined) => {
 
 export const truncate = (value: string, max = 120) =>
   value.length > max ? `${value.slice(0, max)}...` : value;
+
+export const formatClockTime = (value: Date) =>
+  `${value.getHours().toString().padStart(2, "0")}:${value
+    .getMinutes()
+    .toString()
+    .padStart(2, "0")}:${value.getSeconds().toString().padStart(2, "0")}.${value
+    .getMilliseconds()
+    .toString()
+    .padStart(3, "0")}`;
+
+export const eventScope = (event: string) => event.split(".")[0] ?? event;
 
 export const extractAttachmentNames = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
