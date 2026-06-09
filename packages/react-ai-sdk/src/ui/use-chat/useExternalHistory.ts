@@ -292,5 +292,34 @@ export const useExternalHistory = <TMessage>(
     };
   }, [formatAdapter, storageFormatAdapter, runtimeRef]);
 
-  return isLoading;
+  const deleteMessage = useCallback(
+    async (messageId: string) => {
+      if (!formatAdapter?.delete) return;
+
+      const messages = runtimeRef.current.thread.getState().messages;
+      const messageIndex = messages.findIndex((m) => m.id === messageId);
+      if (messageIndex === -1) return;
+
+      const previousInnerMessages = messages
+        .slice(0, messageIndex)
+        .flatMap(getExternalStoreMessages<TMessage>);
+      let parentId = previousInnerMessages.at(-1)
+        ? storageFormatAdapter.getId(previousInnerMessages.at(-1)!)
+        : null;
+      const itemsToDelete = getExternalStoreMessages<TMessage>(
+        messages[messageIndex]!,
+      ).map((message) => {
+        const item = { parentId, message };
+        parentId = storageFormatAdapter.getId(message);
+        return item;
+      });
+
+      await formatAdapter.delete(itemsToDelete);
+
+      historyIds.current.delete(messageId);
+    },
+    [formatAdapter, runtimeRef, storageFormatAdapter],
+  );
+
+  return { isLoading, deleteMessage };
 };
