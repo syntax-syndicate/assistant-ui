@@ -204,6 +204,115 @@ function toInputContent(
   return null;
 }
 
+type SnapshotAttachment = NonNullable<
+  CoreThreadMessageLike["attachments"]
+>[number];
+
+const mediaInputTypes = new Set(["image", "audio", "video", "document"]);
+
+// Inverse of buildInputSource.
+function inputSourceToString(
+  value: unknown,
+): { value: string; mimeType?: string } | null {
+  if (!isObject(value)) return null;
+  const sourceValue = getString(value, "value");
+  if (sourceValue === undefined) return null;
+  const mimeType = getString(value, "mimeType");
+  const type = getString(value, "type");
+  if (type === "url") {
+    return { value: sourceValue, ...(mimeType !== undefined && { mimeType }) };
+  }
+  if (type === "data") {
+    const resolvedMimeType = mimeType ?? "application/octet-stream";
+    return {
+      value: `data:${resolvedMimeType};base64,${sourceValue}`,
+      mimeType: resolvedMimeType,
+    };
+  }
+  return null;
+}
+
+// Mirrors @ag-ui/client's BackwardCompatibility_0_0_47 middleware.
+function upgradeBinaryInputPart(
+  part: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const mimeType = getString(part, "mimeType");
+  if (mimeType === undefined) return null;
+  const data = getString(part, "data");
+  const url = getString(part, "url");
+  const source = data
+    ? { type: "data", value: data, mimeType }
+    : url
+      ? { type: "url", value: url, mimeType }
+      : null;
+  if (!source) return null;
+  const filename = getString(part, "filename");
+  return {
+    type: mediaTypeForMime(mimeType),
+    source,
+    ...(filename && { metadata: { filename } }),
+  };
+}
+
+function toSnapshotAttachments(content: unknown): SnapshotAttachment[] {
+  if (!Array.isArray(content)) return [];
+
+  const attachments: SnapshotAttachment[] = [];
+  for (const rawPart of content) {
+    if (!isObject(rawPart)) continue;
+    const part =
+      getString(rawPart, "type") === "binary"
+        ? upgradeBinaryInputPart(rawPart)
+        : rawPart;
+    if (!part) continue;
+    const type = getString(part, "type");
+    if (type === undefined || !mediaInputTypes.has(type)) continue;
+    const source = inputSourceToString(part.source);
+    if (!source) continue;
+
+    const filename = isObject(part.metadata)
+      ? getString(part.metadata, "filename")
+      : undefined;
+    const id = attachments.length.toString();
+
+    if (type === "image") {
+      attachments.push({
+        id,
+        type: "image",
+        name: filename ?? "image",
+        ...(source.mimeType !== undefined && { contentType: source.mimeType }),
+        status: { type: "complete" },
+        content: [
+          {
+            type: "image",
+            image: source.value,
+            ...(filename !== undefined && { filename }),
+          },
+        ],
+      });
+      continue;
+    }
+
+    const mimeType = source.mimeType ?? "application/octet-stream";
+    attachments.push({
+      id,
+      type: type === "document" ? "document" : "file",
+      name: filename ?? "file",
+      contentType: mimeType,
+      status: { type: "complete" },
+      content: [
+        {
+          type: "file",
+          data: source.value,
+          mimeType,
+          ...(filename !== undefined && { filename }),
+        },
+      ],
+    });
+  }
+  return attachments;
+}
+
 function buildUserContent(message: ThreadMessageLike): string | InputContent[] {
   // File parts in message.content are intentionally skipped: the canonical
   // binary payload for files always flows through message.attachments.
@@ -353,11 +462,14 @@ function toUserOrSystemSnapshotMessage(
   rawMessage: Record<string, unknown>,
 ): CoreThreadMessageLike {
   const messageName = getString(rawMessage, "name");
+  const attachments =
+    role === "user" ? toSnapshotAttachments(rawMessage.content) : [];
   return {
     id: getString(rawMessage, "id") ?? generateId(),
     role,
     content: extractText(rawMessage.content),
     ...(messageName !== undefined ? { name: messageName } : {}),
+    ...(attachments.length > 0 ? { attachments } : {}),
   };
 }
 
