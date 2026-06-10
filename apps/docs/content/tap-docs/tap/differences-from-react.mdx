@@ -20,7 +20,7 @@ it:
 import { resource } from "@assistant-ui/tap";
 import { useMemo } from "react";
 
-const Filtered = resource(function Filtered(props: { items: string[]; query: string }) {
+const useFiltered = (props: { items: string[]; query: string }) => {
   // derive, don't store-and-sync
   const visible = useMemo(
     () => props.items.filter((i) => i.includes(props.query)),
@@ -28,7 +28,9 @@ const Filtered = resource(function Filtered(props: { items: string[]; query: str
   );
 
   return { visible };
-});
+};
+
+const Filtered = resource(useFiltered);
 ```
 
 ## Effects run in call order
@@ -42,16 +44,20 @@ before or after a child.
 import { resource, useResource } from "@assistant-ui/tap";
 import { useEffect } from "react";
 
-const Parent = resource(function Parent() {
+const useParent = () => {
   useEffect(() => console.log("1: before child"));
   const child = useResource(Child());
   useEffect(() => console.log("3: after child"));
   return child;
-});
+};
 
-const Child = resource(function Child() {
+const Parent = resource(useParent);
+
+const useChild = () => {
   useEffect(() => console.log("2: child"));
-});
+};
+
+const Child = resource(useChild);
 // Mount order: 1, 2, 3
 ```
 
@@ -67,7 +73,7 @@ re-renders from the root**: because a parent reads its child's return value
 directly, the parent must re-run to receive the new value, and so must its parent,
 all the way up.
 
-[`useResourceRoot`](/tap/docs/tap/composition#useresourceroot) breaks this chain.
+[`useTapRoot`](/tap/docs/tap/composition#usetaproot) breaks this chain.
 It creates a subtree boundary: everything below it re-renders independently, and
 the parent does not re-render when the subtree updates. This is how you keep a
 large tree efficient and how store libraries are built on tap.
@@ -82,5 +88,5 @@ ports cleanly) but behaves like `useEffect` inside a resource.
 In development, resources hosted via `useResource` inherit React's strict mode: if
 your component is inside `<StrictMode>`, the resource also renders twice on mount
 to surface accidental side effects in render. Standalone roots created with
-[`createResourceRoot`](/tap/docs/tap/outside-react) enable this automatically in
+[`createTapRoot`](/tap/docs/tap/outside-react) enable this automatically in
 development.

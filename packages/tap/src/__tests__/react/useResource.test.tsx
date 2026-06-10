@@ -8,13 +8,13 @@ import {
 import { resource } from "../../core/resource";
 import { withKey } from "../../core/withKey";
 import { useState } from "react";
-import { useState as useResourceState } from "../../hooks/useState";
-import { useEffect as useResourceEffect } from "../../hooks/useEffect";
+import { useState as useResourceState } from "../../react-hooks/useState";
+import { useEffect as useResourceEffect } from "../../react-hooks/useEffect";
 import {
   useResource,
   useResources,
-  useResourceRoot,
-  flushResourcesSync,
+  useTapRoot,
+  flushTapSync,
 } from "../../index";
 
 describe("@assistant-ui/tap/react resource API", () => {
@@ -25,18 +25,22 @@ describe("@assistant-ui/tap/react resource API", () => {
 
   describe("useResource", () => {
     it("routes to useResource inside a tap resource", () => {
-      const Child = resource(function Child(props: { n: number }) {
+      const useChild = (props: { n: number }) => {
         return props.n * 2;
-      });
+      };
+
+      const Child = resource(useChild);
       const parent = createTestResource(() => useResource(Child({ n: 21 })));
-      expect(renderTest(parent, undefined)).toBe(42);
+      expect(renderTest(parent)).toBe(42);
     });
 
     it("routes to the React bridge inside a component", () => {
-      const CounterResource = resource(function CounterResource() {
+      const useCounterResource = () => {
         const [count, setCount] = useResourceState(0);
         return { count, setCount };
-      });
+      };
+
+      const CounterResource = resource(useCounterResource);
 
       let api: { count: number; setCount: (n: number) => void } | null = null;
       function App() {
@@ -53,23 +57,27 @@ describe("@assistant-ui/tap/react resource API", () => {
 
   describe("useResources", () => {
     it("hosts a keyed list inside a tap resource", () => {
-      const Item = resource(function Item(p: { n: number }) {
+      const useItem = (p: { n: number }) => {
         return p.n * 10;
-      });
+      };
+
+      const Item = resource(useItem);
       const parent = createTestResource(() =>
         useResources(() => [
           withKey("a", Item({ n: 1 })),
           withKey("b", Item({ n: 2 })),
         ]),
       );
-      expect(renderTest(parent, undefined)).toEqual([10, 20]);
+      expect(renderTest(parent)).toEqual([10, 20]);
     });
 
     it("hosts a keyed list inside a React component and tracks deps", () => {
-      const Item = resource(function Item(p: { n: number }) {
+      const useItem = (p: { n: number }) => {
         const [v] = useResourceState(p.n * 10);
         return v;
-      });
+      };
+
+      const Item = resource(useItem);
 
       let setCount: (n: number) => void = () => {};
       function App() {
@@ -92,16 +100,19 @@ describe("@assistant-ui/tap/react resource API", () => {
     });
   });
 
-  describe("useResourceRoot", () => {
+  describe("useTapRoot", () => {
     it("exposes a subscribable inside a tap resource", () => {
-      const Root = resource(function Root() {
+      const useRoot = () => {
         const [n] = useResourceState(7);
         return n;
-      });
+      };
+
       const parent = createTestResource(() =>
-        useResourceRoot(Root()).getValue(),
+        useTapRoot(function Root() {
+          return useRoot();
+        }).getValue(),
       );
-      expect(renderTest(parent, undefined)).toBe(7);
+      expect(renderTest(parent)).toBe(7);
     });
 
     // A root is push-based: host it in one place and observe it via getValue/
@@ -110,19 +121,21 @@ describe("@assistant-ui/tap/react resource API", () => {
     // and the root notifies on output change — so this test observes the store
     // directly rather than through a same-component useSyncExternalStore.)
     it("hosts a subscribable root inside a React component", () => {
-      const CounterRoot = resource(function CounterRoot() {
+      const useCounterRoot = () => {
         const [count, setCount] = useResourceState(0);
         return { count, setCount };
-      });
+      };
 
       let store: ReturnType<
-        typeof useResourceRoot<{
+        typeof useTapRoot<{
           count: number;
           setCount: (n: number) => void;
         }>
       > | null = null;
       function App() {
-        store = useResourceRoot(CounterRoot());
+        store = useTapRoot(function Root() {
+          return useCounterRoot();
+        });
         return null;
       }
 
@@ -136,7 +149,7 @@ describe("@assistant-ui/tap/react resource API", () => {
 
       // The root drives updates through tap's own (macrotask) scheduler, so flush
       // synchronously to observe.
-      flushResourcesSync(() => store!.getValue().setCount(5));
+      flushTapSync(() => store!.getValue().setCount(5));
       expect(store!.getValue().count).toBe(5);
       expect(notified).toBeGreaterThan(0);
 
@@ -147,11 +160,13 @@ describe("@assistant-ui/tap/react resource API", () => {
   describe("useResource key remount (React bridge)", () => {
     it("remounts the hosted resource when the element key changes", () => {
       const mounts: number[] = [];
-      const Keyed = resource(function Keyed(p: { id: number }) {
+      const useKeyed = (p: { id: number }) => {
         // oxlint-disable-next-line react/exhaustive-deps -- capture the mount id once per fiber to assert remount on key change
         useResourceEffect(() => void mounts.push(p.id), []);
         return p.id;
-      });
+      };
+
+      const Keyed = resource(useKeyed);
 
       let setId: (n: number) => void = () => {};
       function App() {

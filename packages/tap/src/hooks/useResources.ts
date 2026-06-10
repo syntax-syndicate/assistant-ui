@@ -4,41 +4,23 @@ import type {
   ResourceElement,
   ResourceFiber,
 } from "../core/types";
-import { useEffect } from "./useEffect";
-import { useMemo } from "./useMemo";
-import { useCallback } from "./useCallback";
 import {
-  createResourceFiber,
   unmountResourceFiber,
   renderResourceFiber,
   commitResourceFiber,
 } from "../core/ResourceFiber";
-import { useRef } from "./useRef";
-import { getCurrentResourceFiber } from "../core/helpers/execution-context";
+import { useResourceFiberHost } from "./utils/useResourceFiberHostUtils";
+import { useCallback, useEffect, useMemo } from "react";
 
 type FiberState = {
-  fiber: ResourceFiber<unknown, unknown>;
-  next:
-    | RenderResult
-    | [ResourceFiber<unknown, unknown>, RenderResult]
-    | "delete";
+  fiber: ResourceFiber<unknown>;
+  next: RenderResult | [ResourceFiber<unknown>, RenderResult] | "delete";
 };
 
-export function useResources<E extends ResourceElement<any, any>>(
+export function useResources<E extends ResourceElement<any, any[]>>(
   getElements: () => readonly E[],
   getElementsDeps?: readonly unknown[],
 ): ExtractResourceReturnType<E>[] {
-  const versionRef = useRef(0);
-  const version = versionRef.current;
-
-  const parentFiber = useMemo(() => getCurrentResourceFiber(), []);
-  const markDirty = useMemo(
-    () => () => {
-      versionRef.current++;
-      parentFiber.markDirty?.();
-    },
-    [parentFiber],
-  );
   const fibers = useMemo(() => new Map<string | number, FiberState>(), []);
 
   const getElementsMemo = getElementsDeps
@@ -48,6 +30,7 @@ export function useResources<E extends ResourceElement<any, any>>(
 
   // Process each element
 
+  const { version, createFiber } = useResourceFiberHost();
   const res = useMemo(() => {
     void version;
 
@@ -73,12 +56,8 @@ export function useResources<E extends ResourceElement<any, any>>(
 
       let state = fibers.get(elementKey);
       if (!state) {
-        const fiber = createResourceFiber(
-          element.type,
-          parentFiber.root,
-          markDirty,
-        );
-        const result = renderResourceFiber(fiber, element.props);
+        const fiber = createFiber(element.hook);
+        const result = renderResourceFiber(fiber, element.args);
         state = {
           fiber,
           next: result,
@@ -86,17 +65,13 @@ export function useResources<E extends ResourceElement<any, any>>(
         newCount++;
         fibers.set(elementKey, state);
         results.push(result.output);
-      } else if (state.fiber.type !== element.type) {
-        const fiber = createResourceFiber(
-          element.type,
-          parentFiber.root,
-          markDirty,
-        );
-        const result = renderResourceFiber(fiber, element.props);
+      } else if (state.fiber.hook !== element.hook) {
+        const fiber = createFiber(element.hook);
+        const result = renderResourceFiber(fiber, element.args);
         state.next = [fiber, result];
         results.push(result.output);
       } else {
-        state.next = renderResourceFiber(state.fiber, element.props);
+        state.next = renderResourceFiber(state.fiber, element.args);
         results.push(state.next.output);
       }
     }
@@ -111,7 +86,7 @@ export function useResources<E extends ResourceElement<any, any>>(
     }
 
     return results;
-  }, [getElementsMemo, version, parentFiber, markDirty, fibers]);
+  }, [getElementsMemo, fibers, createFiber, version]);
 
   // Cleanup on unmount
   useEffect(() => {

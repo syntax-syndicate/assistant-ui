@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createResourceRoot } from "@assistant-ui/tap";
+import { createTapRoot, useResource } from "@assistant-ui/tap";
 import type { Tool } from "assistant-stream";
 import { ModelContext } from "./model-context-client";
 import type {
@@ -18,9 +18,10 @@ const toolFixture = (): Tool<any, any> =>
   ({ description: "", parameters: {} as any }) as unknown as Tool<any, any>;
 
 const render = () => {
-  const root = createResourceRoot();
-  const sub = root.render(ModelContext());
-  return { sub, unmount: () => root.unmount() };
+  const root = createTapRoot(function Root() {
+    return useResource(ModelContext());
+  });
+  return { sub: root, unmount: () => root.unmount() };
 };
 
 describe("ModelContext", () => {

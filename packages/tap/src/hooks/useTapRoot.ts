@@ -5,64 +5,62 @@ import {
   unmountResourceFiber,
 } from "../core/ResourceFiber";
 import { UpdateScheduler } from "../core/scheduler";
-import { useMemo } from "./useMemo";
-import { useEffect } from "./useEffect";
-import { useEffectEvent } from "./useEffectEvent";
-import { useRef } from "./useRef";
-import type { RenderResult, ResourceElement } from "../core/types";
+import type { RenderResult } from "../core/types";
 import { isDevelopment } from "../core/helpers/env";
 import {
   commitRoot,
   createResourceFiberRoot,
   setRootVersion,
 } from "../core/helpers/root";
+import { useEffect, useEffectEvent, useMemo, useRef } from "react";
+import { useDevStrictMode } from "./utils/useDevStrictMode";
 
-export namespace useResourceRoot {
+export namespace useTapRoot {
   export type Unsubscribe = () => void;
 
-  export interface SubscribableResource<TState> {
+  export interface Root<R> {
     /**
-     * Get the current state of the store.
+     * Get the current value of the root.
      */
-    getValue(): TState;
+    getValue(): R;
 
     /**
-     * Subscribe to the store.
+     * Subscribe to the root.
      */
     subscribe(listener: () => void): Unsubscribe;
   }
 }
 
-// The root is never reset, because rollbacks are not supported in useResourceRoot.
+const useHostRoot = <R>(render: () => R): R => render();
 
-export const useResourceRoot = <TState>(
-  element: ResourceElement<TState>,
-): useResourceRoot.SubscribableResource<TState> => {
+export const useTapRoot = <R>(render: () => R): useTapRoot.Root<R> => {
   const scheduler = useMemo(
     () => new UpdateScheduler(() => handleUpdate(null)),
     [],
   );
   const queue = useMemo(() => [] as (() => void)[], []);
 
+  const getDevStrictMode = useDevStrictMode();
   const fiber = useMemo(() => {
-    void element.key;
-
     return createResourceFiber(
-      element.type,
+      useHostRoot<R>,
       createResourceFiberRoot((callback) => {
         if (!scheduler.isDirty && !callback()) return;
         queue.push(callback);
         scheduler.markDirty();
       }),
+      undefined,
+      getDevStrictMode(),
     );
-  }, [element.type, element.key, queue, scheduler]);
+  }, [queue, scheduler, getDevStrictMode]);
 
+  // TODO I think dev mode only should double render!
   setRootVersion(fiber.root, fiber.root.committedVersion);
-  const render = renderResourceFiber(fiber, element.props);
+  const render2 = renderResourceFiber(fiber, [render]);
 
   const isMountedRef = useRef(false);
-  const committedPropsRef = useRef(element.props);
-  const valueRef = useRef<TState>(render.output);
+  const committedArgsRef = useRef([render] as const);
+  const valueRef = useRef<R>(render2.output);
   const subscribers = useMemo(() => new Set<() => void>(), []);
   const handleUpdate = useEffectEvent((render: RenderResult | null) => {
     if (render === null) {
@@ -78,10 +76,10 @@ export const useResourceRoot = <TState>(
       });
 
       if (isDevelopment && fiber.devStrictMode) {
-        void renderResourceFiber(fiber, committedPropsRef.current);
+        void renderResourceFiber(fiber, committedArgsRef.current);
       }
 
-      render = renderResourceFiber(fiber, committedPropsRef.current);
+      render = renderResourceFiber(fiber, committedArgsRef.current);
     }
 
     if (scheduler.isDirty)
@@ -108,12 +106,12 @@ export const useResourceRoot = <TState>(
   }, [fiber]);
 
   useEffect(() => {
-    committedPropsRef.current = render.props;
+    committedArgsRef.current = [render];
     commitRoot(fiber.root);
-    commitResourceFiber(fiber, render);
+    commitResourceFiber(fiber, render2);
 
-    if (scheduler.isDirty || valueRef.current === render.output) return;
-    valueRef.current = render.output;
+    if (scheduler.isDirty || valueRef.current === render2.output) return;
+    valueRef.current = render2.output;
     subscribers.forEach((callback) => callback());
   });
 

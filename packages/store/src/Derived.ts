@@ -25,15 +25,19 @@ import type {
  * });
  * ```
  */
-export const Derived = resource(function Derived<K extends ClientNames>(
+// Exported so consumers (e.g. splitClients) can identify a derived element by its
+// hook: a `Derived(...)` element carries `hook === useDerived`.
+export const useDerived = <K extends ClientNames>(
   _config: Derived.Props<K>,
-): null {
+): null => {
   return null;
-});
+};
+
+export const Derived = resource(useDerived);
 
 export type DerivedElement<K extends ClientNames> = ResourceElement<
   null,
-  Derived.Props<K>
+  [Derived.Props<K>]
 >;
 
 export namespace Derived {

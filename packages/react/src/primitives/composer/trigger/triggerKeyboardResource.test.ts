@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { createResourceRoot } from "@assistant-ui/tap";
+import { createTapRoot, useResource } from "@assistant-ui/tap";
 import type {
   Unstable_TriggerCategory,
   Unstable_TriggerItem,
@@ -41,9 +41,10 @@ const render = (
     close: vi.fn(),
     ...overrides,
   };
-  const root = createResourceRoot();
-  const sub = root.render(TriggerKeyboardResource(props));
-  return { sub, props };
+  const root = createTapRoot(function Root() {
+    return useResource(TriggerKeyboardResource(props));
+  });
+  return { sub: root, props };
 };
 
 describe("TriggerKeyboardResource", () => {

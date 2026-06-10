@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { useResources } from "../../hooks/useResources";
-import { useState } from "../../hooks/useState";
+import { useState } from "../../react-hooks/useState";
 import { resource } from "../../core/resource";
 import { withKey } from "../../core/withKey";
 import {
@@ -13,25 +13,24 @@ import {
 const SimpleCounter = resource(createCounterResource());
 
 // Stateful counter that tracks its own count
-const StatefulCounter = resource(function StatefulCounter(props: {
-  initial: number;
-}) {
+const useStatefulCounter = (props: { initial: number }) => {
   const [count] = useState(props.initial);
   return { count };
-});
+};
+
+const StatefulCounter = resource(useStatefulCounter);
 
 // Display component for testing type changes
-const Display = resource(function Display(props: { text: string }) {
+const useDisplay = (props: { text: string }) => {
   return { type: "display", text: props.text };
-});
+};
+
+const Display = resource(useDisplay);
 
 // Counter with render tracking for testing instance preservation
 const renderCounts = new Map<string, number>();
 const instances = new Map<string, object>();
-const TrackingCounter = resource(function TrackingCounter(props: {
-  value: number;
-  id: string;
-}) {
+const useTrackingCounter = (props: { value: number; id: string }) => {
   const currentCount = (renderCounts.get(props.id) || 0) + 1;
   renderCounts.set(props.id, currentCount);
 
@@ -45,7 +44,9 @@ const TrackingCounter = resource(function TrackingCounter(props: {
     renderCount: currentCount,
     instance: instances.get(props.id),
   };
-});
+};
+
+const TrackingCounter = resource(useTrackingCounter);
 
 describe("useResources - Basic Functionality", () => {
   afterEach(() => {
@@ -67,15 +68,17 @@ describe("useResources - Basic Functionality", () => {
         return results;
       });
 
-      const result = renderTest(testFiber, undefined);
+      const result = renderTest(testFiber);
       expect(result).toEqual([{ count: 10 }, { count: 20 }, { count: 30 }]);
     });
 
     it("should work with resource constructor syntax", () => {
-      const Counter = resource(function Counter(props: { value: number }) {
+      const useCounter = (props: { value: number }) => {
         const [count] = useState(props.value);
         return { count, double: count * 2 };
-      });
+      };
+
+      const Counter = resource(useCounter);
 
       const items = [
         { key: "first", value: 5 },
@@ -95,7 +98,7 @@ describe("useResources - Basic Functionality", () => {
         return results;
       });
 
-      const result = renderTest(testFiber, undefined);
+      const result = renderTest(testFiber);
       expect(result).toEqual([
         { count: 5, double: 10 },
         { count: 10, double: 20 },

@@ -1,13 +1,17 @@
-import type { useEffect } from "../hooks/useEffect";
+import { EffectCallback } from "react";
 
-export type ResourceElement<R, P = any> = {
-  readonly type: Resource<R, P>;
-  readonly props: P;
+export type ResourceElement<R, A extends readonly unknown[] = any[]> = {
+  readonly hook: (...args: A) => R;
+  readonly args: Readonly<A>;
   readonly key?: string | number;
 };
 
-export type Resource<R, P> = (props: P) => ResourceElement<R, P>;
-export type ContravariantResource<R, P> = (props: P) => ResourceElement<R>;
+export type Resource<R, A extends readonly unknown[] = any[]> = (
+  ...args: A
+) => ResourceElement<R, A>;
+export type ContravariantResource<R, A extends readonly unknown[] = any[]> = (
+  ...args: A
+) => ResourceElement<R>;
 
 export type ExtractResourceReturnType<T> =
   T extends ResourceElement<infer R, any>
@@ -35,19 +39,18 @@ export type Cell =
     }
   | {
       readonly type: "effect";
-      cleanup: useEffect.Destructor | undefined;
+      cleanup: (() => void) | undefined;
       deps: readonly unknown[] | null | undefined;
     };
 
 export interface EffectTask {
-  readonly effect: useEffect.EffectCallback;
+  readonly effect: EffectCallback;
   readonly deps: readonly unknown[] | undefined;
   readonly cell: Cell & { type: "effect" };
 }
 
 export interface RenderResult {
   readonly output: any;
-  readonly props: any;
   readonly effectTasks: (() => void)[];
 }
 
@@ -60,9 +63,9 @@ export interface ResourceFiberRoot {
   readonly dirtyCells: (Cell & { type: "reducer" })[];
 }
 
-export interface ResourceFiber<R, P> {
+export interface ResourceFiber<R, A extends readonly unknown[] = any[]> {
   readonly root: ResourceFiberRoot;
-  readonly type: Resource<R, P>;
+  readonly hook: (...args: A) => R;
   readonly markDirty: (() => void) | undefined;
   readonly devStrictMode: "root" | "child" | null;
 

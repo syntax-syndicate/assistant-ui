@@ -1,22 +1,7 @@
-import type { ResourceElement } from "./types";
-import { fnSymbol } from "./helpers/callResourceFn";
+import type { Resource, ResourceElement } from "./types";
 
-export function resource<R>(fn: () => R): () => ResourceElement<R, undefined>;
-export function resource<R, P>(
-  fn: (props: P) => R,
-): (props: P) => ResourceElement<R, P>;
-export function resource<R, P>(
-  fn: (props?: P) => R,
-): (props?: P) => ResourceElement<R, P | undefined>;
-export function resource<R, P = undefined>(fn: (props: P) => R) {
-  const type = (props?: P) => {
-    return {
-      type,
-      props: props!,
-    } satisfies ResourceElement<R, P>;
-  };
-
-  type[fnSymbol] = fn;
-
-  return type;
+export function resource<R, A extends readonly unknown[]>(
+  hook: (...args: A) => R,
+): Resource<R, A> {
+  return (...args: A): ResourceElement<R, A> => ({ hook, args });
 }

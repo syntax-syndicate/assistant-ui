@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { useReducer } from "../../hooks/useReducer";
-import { useEffect } from "../../hooks/useEffect";
+import { useReducer } from "../../react-hooks/useReducer";
+import { useEffect } from "../../react-hooks/useEffect";
 import {
   createTestResource,
   renderTest,
@@ -23,7 +23,7 @@ describe("useReducer - Basic Functionality", () => {
         return count;
       });
 
-      const result = renderTest(testFiber, undefined);
+      const result = renderTest(testFiber);
       expect(result).toBe(0);
     });
 
@@ -39,12 +39,12 @@ describe("useReducer - Basic Functionality", () => {
         return count;
       });
 
-      const result = renderTest(testFiber, undefined);
+      const result = renderTest(testFiber);
       expect(result).toBe(20);
       expect(initCalled).toBe(1);
 
       // Re-render should not call init again
-      renderTest(testFiber, undefined);
+      renderTest(testFiber);
       expect(initCalled).toBe(1);
     });
   });
@@ -73,7 +73,7 @@ describe("useReducer - Basic Functionality", () => {
         return count;
       });
 
-      renderTest(testFiber, undefined);
+      renderTest(testFiber);
       expect(getCommittedOutput(testFiber)).toBe(0);
 
       dispatchFn!({ type: "increment" });
@@ -91,7 +91,9 @@ describe("useReducer - Basic Functionality", () => {
   });
 
   describe("Same-state bailout", () => {
-    it("should not re-render when reducer returns same state (Object.is)", async () => {
+    it("re-renders once when the reducer returns the same state, like React", async () => {
+      // React computes user reducers during render (no eager dispatch-time
+      // bailout), so a same-state dispatch still renders once.
       let renderCount = 0;
       const reducer = (state: number, action: number) =>
         action === 0 ? state : state + action;
@@ -109,13 +111,13 @@ describe("useReducer - Basic Functionality", () => {
         return count;
       });
 
-      renderTest(testFiber, undefined);
+      renderTest(testFiber);
       expect(renderCount).toBe(1);
 
       // Dispatch action that returns same state
       dispatchFn!(0);
       await waitForNextTick();
-      expect(renderCount).toBe(1);
+      expect(renderCount).toBe(2);
     });
   });
 
@@ -136,7 +138,7 @@ describe("useReducer - Basic Functionality", () => {
         return count;
       });
 
-      renderTest(testFiber, undefined);
+      renderTest(testFiber);
       expect(getCommittedOutput(testFiber)).toBe(0);
 
       // Dispatch with multiplier=1
@@ -146,7 +148,7 @@ describe("useReducer - Basic Functionality", () => {
 
       // Change multiplier and dispatch
       multiplier = 10;
-      renderTest(testFiber, undefined); // re-render to update reducer
+      renderTest(testFiber); // re-render to update reducer
       dispatchFn!(5);
       await waitForNextTick();
       expect(getCommittedOutput(testFiber)).toBe(55); // 5 + 5*10
@@ -168,7 +170,7 @@ describe("useReducer - Basic Functionality", () => {
         return count;
       });
 
-      renderTest(testFiber, undefined);
+      renderTest(testFiber);
       expect(getCommittedOutput(testFiber)).toBe(0);
 
       // Multiple dispatches
@@ -191,8 +193,8 @@ describe("useReducer - Basic Functionality", () => {
         return count;
       });
 
-      renderTest(testFiber, undefined);
-      renderTest(testFiber, undefined);
+      renderTest(testFiber);
+      renderTest(testFiber);
 
       expect(dispatches[0]).toBe(dispatches[1]);
     });
