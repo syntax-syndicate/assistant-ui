@@ -722,6 +722,7 @@ export class AgUiThreadRuntimeCore {
         unstable_annotations: [],
         unstable_data: [],
         steps: [],
+        isOptimistic: true,
         custom: {},
       },
     };
@@ -742,9 +743,11 @@ export class AgUiThreadRuntimeCore {
       );
       this.messages = this.messages.filter((m) => m.id !== oldId);
     } else {
-      this.messages = this.messages.map((m) =>
-        m.id === oldId ? { ...m, id: newId } : m,
-      );
+      this.messages = this.messages.map((m) => {
+        if (m.id !== oldId) return m;
+        const { isOptimistic: _, ...metadata } = m.metadata;
+        return { ...m, id: newId, metadata } as ThreadMessage;
+      });
     }
 
     const pendingParent = this.assistantHistoryParents.get(oldId);
@@ -869,6 +872,7 @@ export class AgUiThreadRuntimeCore {
       unstable_annotations: annotations,
       unstable_data: data,
       steps,
+      ...(current.isOptimistic ? { isOptimistic: true } : {}),
       ...(incoming.timing ? { timing: incoming.timing } : {}),
       custom: incoming.custom
         ? { ...current.custom, ...incoming.custom }
