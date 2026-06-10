@@ -64,21 +64,44 @@ export const useScrollLock = <T extends HTMLElement = HTMLElement>(
     const scrollPosition = scrollContainer.scrollTop;
     const scrollbarWidth = scrollContainer.style.scrollbarWidth;
 
+    // Hiding the scrollbar collapses its gutter on classic scrollbars, which
+    // shifts centered content horizontally; compensate with padding on the
+    // side the scrollbar occupies (the left side in RTL).
+    const computed = getComputedStyle(scrollContainer);
+    const paddingSide =
+      computed.direction === "rtl" ? "paddingLeft" : "paddingRight";
+    const previousPadding = scrollContainer.style[paddingSide];
+    const scrollbarSize =
+      scrollContainer.offsetWidth -
+      scrollContainer.clientWidth -
+      parseFloat(computed.borderLeftWidth) -
+      parseFloat(computed.borderRightWidth);
+
     scrollContainer.style.scrollbarWidth = "none";
+    if (scrollbarSize > 0) {
+      scrollContainer.style[paddingSide] = `${
+        parseFloat(computed[paddingSide]) + scrollbarSize
+      }px`;
+    }
+
+    const restoreStyles = () => {
+      scrollContainer.style.scrollbarWidth = scrollbarWidth;
+      scrollContainer.style[paddingSide] = previousPadding;
+    };
 
     const resetPosition = () => (scrollContainer.scrollTop = scrollPosition);
     scrollContainer.addEventListener("scroll", resetPosition);
 
     const timeoutId = setTimeout(() => {
       scrollContainer.removeEventListener("scroll", resetPosition);
-      scrollContainer.style.scrollbarWidth = scrollbarWidth;
+      restoreStyles();
       cleanupRef.current = null;
     }, animationDuration);
 
     cleanupRef.current = () => {
       clearTimeout(timeoutId);
       scrollContainer.removeEventListener("scroll", resetPosition);
-      scrollContainer.style.scrollbarWidth = scrollbarWidth;
+      restoreStyles();
     };
   }, [animationDuration, animatedElementRef]);
 
