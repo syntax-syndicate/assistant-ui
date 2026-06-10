@@ -2,6 +2,7 @@ import type { AppendMessage, ThreadUserMessagePart } from "@assistant-ui/react";
 import type {
   OpencodeClient,
   PermissionRequest,
+  QuestionRequest,
   SessionStatus,
 } from "@opencode-ai/sdk/v2/client";
 import {
@@ -21,7 +22,10 @@ import type {
   OpenCodeUserMessageOptions,
   PendingUserMessage,
 } from "./types";
-import type { OpenCodeEventSource } from "./OpenCodeEventSource";
+import {
+  STREAM_RECONNECTED_EVENT_TYPE,
+  type OpenCodeEventSource,
+} from "./OpenCodeEventSource";
 import { serializeUserParts } from "./serializeUserParts";
 
 type OpenCodeEventSourceProvider = () => Pick<OpenCodeEventSource, "subscribe">;
@@ -78,10 +82,9 @@ const getRecordValue = (
   return undefined;
 };
 
-const extractPermissionRequest = (
-  event: OpenCodeServerEvent,
+const toPermissionRequest = (
+  request: PermissionRequest,
 ): OpenCodePermissionRequest | null => {
-  const request = event.properties as PermissionRequest;
   if (typeof request.id !== "string" || typeof request.sessionID !== "string") {
     return null;
   }
@@ -122,19 +125,28 @@ const extractPermissionRequest = (
   };
 };
 
-const extractQuestionRequest = (
+const extractPermissionRequest = (
   event: OpenCodeServerEvent,
+): OpenCodePermissionRequest | null =>
+  toPermissionRequest(event.properties as PermissionRequest);
+
+const toQuestionRequest = (
+  request: QuestionRequest,
 ): OpenCodeQuestionRequest | null => {
-  const request = event.properties;
   if (typeof request.id !== "string" || typeof request.sessionID !== "string") {
     return null;
   }
 
   return {
-    ...(request as OpenCodeQuestionRequest),
+    ...request,
     askedAt: Date.now(),
   };
 };
+
+const extractQuestionRequest = (
+  event: OpenCodeServerEvent,
+): OpenCodeQuestionRequest | null =>
+  toQuestionRequest(event.properties as unknown as QuestionRequest);
 
 const normalizeUnhandledEvent = (
   event: OpenCodeServerEvent,
@@ -166,6 +178,7 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
   private readonly getEventSource: OpenCodeEventSourceProvider;
   private unsubscribeFromEvents: (() => void) | null = null;
   private loadPromise: Promise<void> | null = null;
+  private reconnectSyncToken = 0;
 
   constructor(
     private readonly client: OpencodeClient,
@@ -180,9 +193,61 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
     if (this.unsubscribeFromEvents) return;
 
     this.unsubscribeFromEvents = this.getEventSource().subscribe((event) => {
+      if (event.type === STREAM_RECONNECTED_EVENT_TYPE) {
+        this.handleStreamReconnect();
+        return;
+      }
       if (event.sessionId !== this.sessionId) return;
       this.handleServerEvent(event);
     });
+  }
+
+  private handleStreamReconnect() {
+    this.refreshInBackground();
+    const token = ++this.reconnectSyncToken;
+
+    void this.client.session
+      .status()
+      .catch(() => null)
+      .then((response) => {
+        if (!response || token !== this.reconnectSyncToken) return;
+        const status = response.data?.[this.sessionId];
+        if (status) {
+          this.dispatch({ type: "session.status", status });
+        } else {
+          this.dispatch({ type: "session.idle", sessionId: this.sessionId });
+        }
+      });
+
+    void this.client.permission
+      .list()
+      .catch(() => null)
+      .then((response) => {
+        if (!response || token !== this.reconnectSyncToken) return;
+        for (const item of response.data ?? []) {
+          const request = toPermissionRequest(item);
+          if (!request || request.sessionId !== this.sessionId) continue;
+          if (request.id in this.state.interactions.permissions.pending) {
+            continue;
+          }
+          this.dispatch({ type: "permission.asked", request });
+        }
+      });
+
+    void this.client.question
+      .list()
+      .catch(() => null)
+      .then((response) => {
+        if (!response || token !== this.reconnectSyncToken) return;
+        for (const item of response.data ?? []) {
+          const request = toQuestionRequest(item);
+          if (!request || request.sessionID !== this.sessionId) continue;
+          if (request.id in this.state.interactions.questions.pending) {
+            continue;
+          }
+          this.dispatch({ type: "question.asked", request });
+        }
+      });
   }
 
   public dispose() {

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { OpenCodeThreadController } from "./OpenCodeThreadController";
+import { STREAM_RECONNECTED_EVENT_TYPE } from "./OpenCodeEventSource";
 import type { OpenCodeServerEvent } from "./types";
 
 const createDeferred = <T>() => {
@@ -29,6 +30,29 @@ const createEventSource = () => {
     unsubscribe,
   };
 };
+
+const streamReconnected: OpenCodeServerEvent = {
+  type: STREAM_RECONNECTED_EVENT_TYPE,
+  sessionId: undefined,
+  raw: undefined,
+  properties: {},
+};
+
+const createReconnectClient = ({
+  status = vi.fn().mockResolvedValue({ data: {} }),
+  permissions = vi.fn().mockResolvedValue({ data: [] }),
+  questions = vi.fn().mockResolvedValue({ data: [] }),
+} = {}) => ({
+  session: {
+    get: vi
+      .fn()
+      .mockResolvedValue({ data: { id: "ses_1", title: "t", time: {} } }),
+    messages: vi.fn().mockResolvedValue({ data: [] }),
+    status,
+  },
+  permission: { list: permissions },
+  question: { list: questions },
+});
 
 describe("OpenCodeThreadController", () => {
   it("re-subscribes through the provider after dispose", () => {
@@ -131,6 +155,177 @@ describe("OpenCodeThreadController", () => {
     unsubscribe();
 
     expect(eventSource.unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-syncs history and status when the stream reconnects", async () => {
+    const eventSource = createEventSource();
+    const client = createReconnectClient();
+    const controller = new OpenCodeThreadController(
+      client as never,
+      () => eventSource,
+      "ses_1",
+    );
+    controller.subscribe(vi.fn());
+
+    eventSource.emit({
+      type: "session.status",
+      sessionId: "ses_1",
+      properties: { status: { type: "busy" } },
+      raw: {},
+    });
+
+    expect(controller.getState().sessionStatus).toMatchObject({
+      type: "busy",
+    });
+
+    eventSource.emit(streamReconnected);
+
+    await vi.waitFor(() => {
+      expect(controller.getState().sessionStatus).toMatchObject({
+        type: "idle",
+      });
+    });
+    expect(controller.getState().runState).toMatchObject({ type: "idle" });
+    expect(client.session.status).toHaveBeenCalledTimes(1);
+    expect(client.session.get).toHaveBeenCalledTimes(1);
+    expect(client.session.messages).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a busy status the server still reports after reconnect", async () => {
+    const eventSource = createEventSource();
+    const client = createReconnectClient({
+      status: vi.fn().mockResolvedValue({ data: { ses_1: { type: "busy" } } }),
+    });
+    const controller = new OpenCodeThreadController(
+      client as never,
+      () => eventSource,
+      "ses_1",
+    );
+    controller.subscribe(vi.fn());
+
+    eventSource.emit(streamReconnected);
+
+    await vi.waitFor(() => {
+      expect(controller.getState().sessionStatus).toMatchObject({
+        type: "busy",
+      });
+    });
+    expect(controller.getState().runState).toMatchObject({
+      type: "streaming",
+    });
+  });
+
+  it("keeps current state when the status endpoint is unavailable", async () => {
+    const eventSource = createEventSource();
+    const client = createReconnectClient({
+      status: vi.fn().mockRejectedValue(new Error("404")),
+    });
+    const controller = new OpenCodeThreadController(
+      client as never,
+      () => eventSource,
+      "ses_1",
+    );
+    controller.subscribe(vi.fn());
+
+    eventSource.emit({
+      type: "session.status",
+      sessionId: "ses_1",
+      properties: { status: { type: "busy" } },
+      raw: {},
+    });
+
+    eventSource.emit(streamReconnected);
+
+    await vi.waitFor(() => {
+      expect(client.session.get).toHaveBeenCalledTimes(1);
+      expect(client.session.status).toHaveBeenCalledTimes(1);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(controller.getState().sessionStatus).toMatchObject({
+      type: "busy",
+    });
+  });
+
+  it("re-surfaces pending permissions and questions after reconnect", async () => {
+    const eventSource = createEventSource();
+    const client = createReconnectClient({
+      permissions: vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: "perm_1",
+            sessionID: "ses_1",
+            permission: "fs.write",
+            metadata: {},
+          },
+          {
+            id: "perm_2",
+            sessionID: "ses_other",
+            permission: "fs.write",
+            metadata: {},
+          },
+        ],
+      }),
+      questions: vi.fn().mockResolvedValue({
+        data: [
+          { id: "q_1", sessionID: "ses_1", questions: [] },
+          { id: "q_2", sessionID: "ses_other", questions: [] },
+        ],
+      }),
+    });
+    const controller = new OpenCodeThreadController(
+      client as never,
+      () => eventSource,
+      "ses_1",
+    );
+    controller.subscribe(vi.fn());
+
+    eventSource.emit(streamReconnected);
+
+    await vi.waitFor(() => {
+      expect(
+        Object.keys(controller.getState().interactions.permissions.pending),
+      ).toEqual(["perm_1"]);
+      expect(
+        Object.keys(controller.getState().interactions.questions.pending),
+      ).toEqual(["q_1"]);
+    });
+  });
+
+  it("ignores stale status responses from a superseded reconnect", async () => {
+    const eventSource = createEventSource();
+    const firstStatus = createDeferred<{ data: Record<string, unknown> }>();
+    const secondStatus = createDeferred<{ data: Record<string, unknown> }>();
+    const client = createReconnectClient({
+      status: vi
+        .fn()
+        .mockImplementationOnce(() => firstStatus.promise)
+        .mockImplementationOnce(() => secondStatus.promise),
+    });
+    const controller = new OpenCodeThreadController(
+      client as never,
+      () => eventSource,
+      "ses_1",
+    );
+    controller.subscribe(vi.fn());
+
+    eventSource.emit(streamReconnected);
+    eventSource.emit(streamReconnected);
+
+    secondStatus.resolve({ data: {} });
+
+    await vi.waitFor(() => {
+      expect(controller.getState().sessionStatus).toMatchObject({
+        type: "idle",
+      });
+    });
+
+    firstStatus.resolve({ data: { ses_1: { type: "busy" } } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(controller.getState().sessionStatus).toMatchObject({
+      type: "idle",
+    });
   });
 
   it("keeps forced reloads authoritative while earlier loads finish", async () => {
