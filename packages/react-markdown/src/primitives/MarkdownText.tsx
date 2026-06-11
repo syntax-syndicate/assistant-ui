@@ -1,6 +1,10 @@
 "use client";
 
-import { INTERNAL, useMessagePartText } from "@assistant-ui/react";
+import {
+  INTERNAL,
+  type SmoothOptions,
+  useMessagePartText,
+} from "@assistant-ui/react";
 import {
   type ComponentRef,
   type ElementType,
@@ -61,7 +65,7 @@ export type MarkdownTextPrimitiveProps = Omit<
         }
       >
     | undefined;
-  smooth?: boolean | undefined;
+  smooth?: boolean | SmoothOptions | undefined;
   /**
    * Defers markdown parsing and rendering to a lower priority via React's
    * `useDeferredValue`, so urgent work (typing, scrolling) is not blocked by

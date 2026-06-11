@@ -12,11 +12,40 @@ import { useCallbackRef } from "@radix-ui/react-use-callback-ref";
 import { useSmoothStatusStore } from "./SmoothContext";
 import { writableStore } from "../../context/ReadonlyStore";
 
+/**
+ * Tuning options for the smooth text streaming animation.
+ */
+export type SmoothOptions = {
+  /**
+   * Target time in milliseconds to drain the backlog of unrevealed
+   * characters. Larger values reveal long backlogs more gradually.
+   * @default 250
+   */
+  drainMs?: number | undefined;
+  /**
+   * Maximum time in milliseconds between revealed characters, i.e. the
+   * slowest reveal rate when the backlog is short.
+   * @default 5
+   */
+  maxCharIntervalMs?: number | undefined;
+  /**
+   * Maximum number of characters revealed per animation frame.
+   * @default Infinity
+   */
+  maxCharsPerFrame?: number | undefined;
+};
+
+const DEFAULT_DRAIN_MS = 250;
+const DEFAULT_MAX_CHAR_INTERVAL_MS = 5;
+
 class TextStreamAnimator {
   private animationFrameId: number | null = null;
   private lastUpdateTime: number = Date.now();
 
   public targetText: string = "";
+  public drainMs: number = DEFAULT_DRAIN_MS;
+  public maxCharIntervalMs: number = DEFAULT_MAX_CHAR_INTERVAL_MS;
+  public maxCharsPerFrame: number = Infinity;
 
   constructor(
     public currentText: string,
@@ -42,12 +71,21 @@ class TextStreamAnimator {
     let timeToConsume = deltaTime;
 
     const remainingChars = this.targetText.length - this.currentText.length;
-    const baseTimePerChar = Math.min(5, 250 / remainingChars);
+    const baseTimePerChar = Math.min(
+      this.maxCharIntervalMs,
+      this.drainMs / remainingChars,
+    );
 
+    const frameLimit = Math.min(remainingChars, this.maxCharsPerFrame);
     let charsToAdd = 0;
-    while (timeToConsume >= baseTimePerChar && charsToAdd < remainingChars) {
+    while (timeToConsume >= baseTimePerChar && charsToAdd < frameLimit) {
       charsToAdd++;
       timeToConsume -= baseTimePerChar;
+    }
+    // A cap-limited frame must not bank its surplus time, or the next
+    // frame would burst past the cap.
+    if (charsToAdd === frameLimit && frameLimit === this.maxCharsPerFrame) {
+      timeToConsume = 0;
     }
 
     if (charsToAdd !== remainingChars) {
@@ -70,11 +108,39 @@ const SMOOTH_STATUS: MessagePartStatus = Object.freeze({
   type: "running",
 });
 
+const positiveOr = (value: number | undefined, fallback: number): number =>
+  value !== undefined && value > 0 ? value : fallback;
+
+/**
+ * Animates streamed message part text with a typewriter-style reveal.
+ *
+ * Takes the current part state and a `smooth` argument: `false` disables,
+ * `true` uses the default rate, and a {@link SmoothOptions} object tunes
+ * the reveal. Returns the part state with `text` replaced by the revealed
+ * prefix and `status` reporting `running` until the reveal catches up.
+ *
+ * @example
+ * ```tsx
+ * const { text, status } = useSmooth(useMessagePartText(), {
+ *   drainMs: 500,
+ *   maxCharsPerFrame: 30,
+ * });
+ * ```
+ */
 export const useSmooth = (
   state: MessagePartState & (TextMessagePart | ReasoningMessagePart),
-  smooth: boolean = false,
+  smooth: boolean | SmoothOptions = false,
 ): MessagePartState & (TextMessagePart | ReasoningMessagePart) => {
   const { text } = state;
+  const options =
+    typeof smooth === "object" && smooth !== null ? smooth : undefined;
+  const enabled = smooth !== false && smooth !== null;
+  const drainMs = positiveOr(options?.drainMs, DEFAULT_DRAIN_MS);
+  const maxCharIntervalMs = positiveOr(
+    options?.maxCharIntervalMs,
+    DEFAULT_MAX_CHAR_INTERVAL_MS,
+  );
+  const maxCharsPerFrame = positiveOr(options?.maxCharsPerFrame, Infinity);
 
   const [displayedText, setDisplayedText] = useState(
     state.status.type === "running" ? "" : text,
@@ -113,20 +179,26 @@ export const useSmooth = (
   useEffect(() => {
     if (smoothStatusStore) {
       const target =
-        smooth && (displayedText !== text || state.status.type === "running")
+        enabled && (displayedText !== text || state.status.type === "running")
           ? SMOOTH_STATUS
           : state.status;
       writableStore(smoothStatusStore).setState(target, true);
     }
-  }, [smoothStatusStore, smooth, text, displayedText, state.status]);
+  }, [smoothStatusStore, enabled, text, displayedText, state.status]);
 
   const [animatorRef] = useState<TextStreamAnimator>(
     new TextStreamAnimator(displayedText, setText),
   );
 
+  useEffect(() => {
+    animatorRef.drainMs = drainMs;
+    animatorRef.maxCharIntervalMs = maxCharIntervalMs;
+    animatorRef.maxCharsPerFrame = maxCharsPerFrame;
+  }, [animatorRef, drainMs, maxCharIntervalMs, maxCharsPerFrame]);
+
   const animatorPartRef = useRef(part);
   useEffect(() => {
-    if (!smooth) {
+    if (!enabled) {
       animatorRef.stop();
       return;
     }
@@ -153,7 +225,7 @@ export const useSmooth = (
 
     animatorRef.targetText = text;
     animatorRef.start();
-  }, [animatorRef, smooth, text, state.status.type, part]);
+  }, [animatorRef, enabled, text, state.status.type, part]);
 
   useEffect(() => {
     return () => {
@@ -163,13 +235,13 @@ export const useSmooth = (
 
   return useMemo(
     () =>
-      smooth
+      enabled
         ? {
-            type: "text",
+            ...state,
             text: displayedText,
             status: text === displayedText ? state.status : SMOOTH_STATUS,
           }
         : state,
-    [smooth, displayedText, state, text],
+    [enabled, displayedText, state, text],
   );
 };
