@@ -1374,6 +1374,218 @@ describe("AGUIThreadRuntimeCore", () => {
     expect(assistant.metadata.custom.agui).toBeUndefined();
   });
 
+  it("attaches a TOOL_CALL_RESULT for a prior run's tool call to its owning message", async () => {
+    let runCount = 0;
+    const runAgent = vi.fn(async (input: any, subscriber: any) => {
+      runCount++;
+      if (runCount === 1) {
+        subscriber.onToolCallStartEvent?.({
+          event: {
+            type: "TOOL_CALL_START",
+            toolCallId: "call-1",
+            toolCallName: "ask_question",
+          },
+        });
+        subscriber.onToolCallArgsEvent?.({
+          event: {
+            type: "TOOL_CALL_ARGS",
+            toolCallId: "call-1",
+            delta: '{"question":"approve?"}',
+          },
+        });
+        subscriber.onToolCallEndEvent?.({
+          event: { type: "TOOL_CALL_END", toolCallId: "call-1" },
+        });
+        subscriber.onRunFinishedEvent?.({
+          event: {
+            type: "RUN_FINISHED",
+            runId: input.runId,
+            outcome: {
+              type: "interrupt",
+              interrupts: [
+                { id: "int-1", reason: "tool_call", toolCallId: "call-1" },
+              ],
+            },
+          },
+        });
+        subscriber.onRunFinalized?.();
+        return;
+      }
+      subscriber.onToolCallResultEvent?.({
+        event: {
+          type: "TOOL_CALL_RESULT",
+          messageId: "tool-msg-1",
+          toolCallId: "call-1",
+          content: '{"answer":"yes"}',
+          role: "tool",
+        },
+      });
+      subscriber.onTextMessageContentEvent?.({
+        event: { type: "TEXT_MESSAGE_CONTENT", delta: "Done." },
+      });
+      subscriber.onRunFinishedEvent?.({
+        event: {
+          type: "RUN_FINISHED",
+          runId: input.runId,
+          outcome: { type: "success" },
+        },
+      });
+      subscriber.onRunFinalized?.();
+    });
+    const agent = { runAgent } as unknown as HttpAgent;
+
+    const core = createCore(agent);
+    await core.append(createAppendMessage());
+    await core.submitInterruptResponses([
+      { interruptId: "int-1", status: "resolved", payload: { ok: true } },
+    ]);
+
+    expect(runAgent).toHaveBeenCalledTimes(2);
+    const assistants = core
+      .getMessages()
+      .filter((m) => m.role === "assistant") as ThreadAssistantMessage[];
+    expect(assistants).toHaveLength(2);
+
+    const [first, second] = assistants;
+    const toolPart = first!.content.find((p) => p.type === "tool-call");
+    expect(toolPart).toMatchObject({
+      toolCallId: "call-1",
+      toolName: "ask_question",
+      result: { answer: "yes" },
+      unstable_toolMessageId: "tool-msg-1",
+    });
+    expect(second!.content.filter((p) => p.type === "tool-call")).toHaveLength(
+      0,
+    );
+    expect(second!.content).toContainEqual(
+      expect.objectContaining({ type: "text", text: "Done." }),
+    );
+  });
+
+  it("falls back to the aggregator when a TOOL_CALL_RESULT has no owning message", async () => {
+    const runAgent = vi.fn(async (input: any, subscriber: any) => {
+      subscriber.onToolCallResultEvent?.({
+        event: {
+          type: "TOOL_CALL_RESULT",
+          toolCallId: "orphan-1",
+          content: "ok",
+          role: "tool",
+        },
+      });
+      subscriber.onRunFinishedEvent?.({
+        event: {
+          type: "RUN_FINISHED",
+          runId: input.runId,
+          outcome: { type: "success" },
+        },
+      });
+      subscriber.onRunFinalized?.();
+    });
+    const agent = { runAgent } as unknown as HttpAgent;
+
+    const core = createCore(agent);
+    await core.append(createAppendMessage());
+
+    const assistant = core
+      .getMessages()
+      .find((m) => m.role === "assistant") as ThreadAssistantMessage;
+    const toolPart = assistant.content.find((p) => p.type === "tool-call");
+    expect(toolPart).toMatchObject({
+      toolCallId: "orphan-1",
+      toolName: "tool",
+      result: "ok",
+    });
+  });
+
+  it("completes a requires-action message via a cross-run result without starting a resume run", async () => {
+    let runCount = 0;
+    const runAgent = vi.fn(async (input: any, subscriber: any) => {
+      runCount++;
+      if (runCount === 1) {
+        subscriber.onToolCallStartEvent?.({
+          event: {
+            type: "TOOL_CALL_START",
+            toolCallId: "call-1",
+            toolCallName: "lookup",
+          },
+        });
+        subscriber.onToolCallArgsEvent?.({
+          event: { type: "TOOL_CALL_ARGS", toolCallId: "call-1", delta: "{}" },
+        });
+        subscriber.onToolCallEndEvent?.({
+          event: { type: "TOOL_CALL_END", toolCallId: "call-1" },
+        });
+        subscriber.onRunFinishedEvent?.({
+          event: { type: "RUN_FINISHED", runId: input.runId },
+        });
+        subscriber.onRunFinalized?.();
+        return;
+      }
+      subscriber.onToolCallResultEvent?.({
+        event: {
+          type: "TOOL_CALL_RESULT",
+          messageId: "tool-msg-1",
+          toolCallId: "call-1",
+          content: "42",
+          role: "tool",
+        },
+      });
+      subscriber.onTextMessageContentEvent?.({
+        event: { type: "TEXT_MESSAGE_CONTENT", delta: "It is 42." },
+      });
+      subscriber.onRunFinishedEvent?.({
+        event: {
+          type: "RUN_FINISHED",
+          runId: input.runId,
+          outcome: { type: "success" },
+        },
+      });
+      subscriber.onRunFinalized?.();
+    });
+    const agent = { runAgent } as unknown as HttpAgent;
+
+    const core = createCore(agent);
+    await core.append(createAppendMessage());
+
+    const owner = core
+      .getMessages()
+      .find((m) => m.role === "assistant") as ThreadAssistantMessage;
+    expect(owner.status).toMatchObject({
+      type: "requires-action",
+      reason: "tool-calls",
+    });
+
+    await core.append(
+      createAppendMessage({ parentId: core.getMessages().at(-1)!.id }),
+    );
+
+    expect(runAgent).toHaveBeenCalledTimes(2);
+    const messages = core.getMessages();
+    expect(messages.map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+
+    const first = messages[1] as ThreadAssistantMessage;
+    expect(first.status).toMatchObject({ type: "complete" });
+    expect(first.content.find((p) => p.type === "tool-call")).toMatchObject({
+      toolCallId: "call-1",
+      toolName: "lookup",
+      result: 42,
+      isError: false,
+    });
+
+    const second = messages[3] as ThreadAssistantMessage;
+    expect(second.content.filter((p) => p.type === "tool-call")).toHaveLength(
+      0,
+    );
+    expect(second.content).toContainEqual(
+      expect.objectContaining({ type: "text", text: "It is 42." }),
+    );
+  });
+
   it("rejects interrupt resume that does not cover every open interrupt", async () => {
     const runAgent = vi.fn(async (input: any, subscriber: any) => {
       subscriber.onRunFinishedEvent?.({
