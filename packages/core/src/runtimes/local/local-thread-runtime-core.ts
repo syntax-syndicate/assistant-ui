@@ -648,6 +648,7 @@ export class LocalThreadRuntimeCore
   public respondToToolApproval({
     approvalId,
     approved,
+    optionId,
     reason,
   }: RespondToToolApprovalOptions) {
     let message = this.repository
@@ -673,14 +674,25 @@ export class LocalThreadRuntimeCore
         "Tried to respond to a tool approval on a message whose status is not requires-action",
       );
 
-    let recorded = false;
+    const target = message.content.find(
+      (c) => c.type === "tool-call" && c.approval?.id === approvalId,
+    );
+    if (target?.type !== "tool-call" || !target.approval)
+      throw new Error("Tried to respond to a non-existing tool approval");
+    if (target.approval.resolution !== undefined)
+      throw new Error(
+        "Tried to respond to a tool approval that was cancelled or expired",
+      );
+    if (target.approval.approved !== undefined)
+      throw new Error("Tried to respond to an already decided tool approval");
+
+    const targetApproval = target.approval;
     const newContent = message.content.map((c) => {
-      if (c.type !== "tool-call" || c.approval?.id !== approvalId) return c;
-      if (c.approval.approved !== undefined) return c;
-      recorded = true;
+      if (c !== target) return c;
       const approval = {
-        ...c.approval,
+        ...targetApproval,
         approved,
+        ...(optionId != null && { optionId }),
         ...(reason != null && { reason }),
       };
       if (approved) return { ...c, approval };
@@ -691,9 +703,6 @@ export class LocalThreadRuntimeCore
         isError: true,
       };
     });
-
-    if (!recorded)
-      throw new Error("Tried to respond to an already decided tool approval");
 
     message = { ...message, content: newContent };
     const { parentId } = this.repository.getMessage(message.id);
