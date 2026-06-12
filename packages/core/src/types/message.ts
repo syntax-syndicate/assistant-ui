@@ -2,10 +2,10 @@ import type {
   ReadonlyJSONObject,
   ReadonlyJSONValue,
 } from "assistant-stream/utils";
-import type { ToolModelContentPart } from "assistant-stream";
+import type { ToolCallTiming, ToolModelContentPart } from "assistant-stream";
 import type { CompleteAttachment } from "./attachment";
 
-export type { ToolModelContentPart };
+export type { ToolCallTiming, ToolModelContentPart };
 
 export type TextMessagePart = {
   readonly type: "text";
@@ -193,6 +193,8 @@ export type ToolCallMessagePart<
   readonly argsText: string;
   /** UI-only artifact associated with the tool result. */
   readonly artifact?: unknown;
+  /** Wall-clock timing for this call, when the runtime or host tracks it. */
+  readonly timing?: ToolCallTiming;
   /** MCP app metadata associated with this tool call, when present. */
   readonly mcp?: ToolCallMessagePartMcpMetadata;
   /** Content returned to the model for this tool result. */
