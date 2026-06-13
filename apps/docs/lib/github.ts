@@ -28,19 +28,25 @@ function ghHeaders(extra?: HeadersInit): HeadersInit {
   return h;
 }
 
+const cacheInit = (
+  revalidate: number,
+): { cache: "no-store" } | { next: { revalidate: number } } =>
+  revalidate === 0 ? { cache: "no-store" } : { next: { revalidate } };
+
 async function ghFetch(
   path: string,
   revalidate: number,
   init?: RequestInit & { headers?: Record<string, string> },
 ): Promise<Response> {
   const { next: initNext, ...rest } = init ?? {};
-  const common = { ...rest, headers: ghHeaders(init?.headers) };
-  return fetch(
-    `${API_BASE}${path}`,
-    revalidate === 0
-      ? { ...common, cache: "no-store" }
-      : { ...common, next: { revalidate, ...(initNext ?? {}) } },
-  );
+  const cache = cacheInit(revalidate);
+  return fetch(`${API_BASE}${path}`, {
+    ...rest,
+    headers: ghHeaders(init?.headers),
+    ...("next" in cache
+      ? { next: { ...cache.next, ...(initNext ?? {}) } }
+      : cache),
+  });
 }
 
 function parseLastPage(linkHeader: string | null): number | null {
@@ -128,6 +134,7 @@ export async function getCommitActivityStats(
 
 export type CommitListItem = {
   commit?: {
+    message?: string;
     author?: { date?: string };
     committer?: { date?: string };
   };
@@ -188,6 +195,115 @@ export async function getCommitStats(
     return { total: null, firstCommitDate: null };
   }
 }
+
+export type CoAuthor = {
+  name: string;
+  email: string;
+  id: number | null;
+  login: string | null;
+  count: number;
+};
+
+const CO_AUTHOR_RE = /co-authored-by:\s*([^<\n]+?)\s*<([^>]+)>/gi;
+const NOREPLY_RE = /^(?:(\d+)\+)?(.+)@users\.noreply\.github\.com$/i;
+
+const COMMIT_PAGE_CONCURRENCY = 8;
+const MAX_COMMIT_PAGES = 60;
+
+export async function getCommitCoAuthors(
+  revalidate: number = REVALIDATE.COOL,
+): Promise<CoAuthor[] | null> {
+  try {
+    const first = await ghFetch("/commits?per_page=100&page=1", revalidate);
+    if (!first.ok) return null;
+    const lastPage = Math.min(
+      parseLastPage(first.headers.get("Link")) ?? 1,
+      MAX_COMMIT_PAGES,
+    );
+    const pages: CommitListItem[][] = [
+      (await first.json()) as CommitListItem[],
+    ];
+
+    const rest: number[] = [];
+    for (let page = 2; page <= lastPage; page++) rest.push(page);
+    for (let i = 0; i < rest.length; i += COMMIT_PAGE_CONCURRENCY) {
+      const batch = await Promise.all(
+        rest.slice(i, i + COMMIT_PAGE_CONCURRENCY).map(async (page) => {
+          const res = await ghFetch(
+            `/commits?per_page=100&page=${page}`,
+            revalidate,
+          );
+          return res.ok ? ((await res.json()) as CommitListItem[]) : [];
+        }),
+      );
+      pages.push(...batch);
+    }
+
+    const byEmail = new Map<string, CoAuthor>();
+    for (const batch of pages) {
+      for (const item of batch) {
+        const message = item.commit?.message;
+        if (!message) continue;
+        for (const match of message.matchAll(CO_AUTHOR_RE)) {
+          const name = match[1]!.trim();
+          const email = match[2]!.trim().toLowerCase();
+          const existing = byEmail.get(email);
+          if (existing) {
+            existing.count++;
+          } else {
+            const noreply = email.match(NOREPLY_RE);
+            byEmail.set(email, {
+              name,
+              email,
+              id: noreply?.[1] ? Number(noreply[1]) : null,
+              login: noreply ? noreply[2]! : null,
+              count: 1,
+            });
+          }
+        }
+      }
+    }
+    return Array.from(byEmail.values());
+  } catch {
+    return null;
+  }
+}
+
+export type GitHubUser = {
+  login: string;
+  type: string;
+  avatarUrl: string;
+  htmlUrl: string;
+};
+
+async function fetchGitHubUser(
+  path: string,
+  revalidate: number,
+): Promise<GitHubUser | null> {
+  try {
+    const res = await fetch(`https://api.github.com/${path}`, {
+      headers: ghHeaders(),
+      ...cacheInit(revalidate),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (typeof data?.login !== "string") return null;
+    return {
+      login: data.login,
+      type: data.type,
+      avatarUrl: data.avatar_url,
+      htmlUrl: data.html_url,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export const getUser = (login: string, revalidate: number = REVALIDATE.COOL) =>
+  fetchGitHubUser(`users/${encodeURIComponent(login)}`, revalidate);
+
+export const getUserById = (id: number, revalidate: number = REVALIDATE.COOL) =>
+  fetchGitHubUser(`user/${id}`, revalidate);
 
 export type GitHubContributor = {
   login: string;
@@ -255,9 +371,7 @@ export async function getDependents(
   try {
     const res = await fetch(`${HTML_BASE}/network/dependents`, {
       headers: { "User-Agent": "Mozilla/5.0 (assistant-ui-traction)" },
-      ...(revalidate === 0
-        ? { cache: "no-store" as const }
-        : { next: { revalidate } }),
+      ...cacheInit(revalidate),
     });
     if (!res.ok) return null;
     const html = await res.text();
