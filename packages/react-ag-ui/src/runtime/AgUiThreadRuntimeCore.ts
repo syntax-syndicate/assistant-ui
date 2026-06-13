@@ -215,6 +215,30 @@ export class AgUiThreadRuntimeCore {
     );
   }
 
+  async resumeInFlightRun(messages: readonly ThreadMessage[]): Promise<void> {
+    // Without a resume stream startRun would re-run the agent from scratch.
+    const resumeStream = this.history?.resume?.bind(this.history);
+    if (!resumeStream) {
+      const error = new Error(
+        "[agui] unstable_resume requires a ThreadHistoryAdapter with a resume() method; skipping resume after thread switch",
+      );
+      this.logger.error?.(error.message);
+      this.onError?.(error);
+      return;
+    }
+    const parentId = messages.at(-1)?.id ?? null;
+    try {
+      await this.startRun(
+        parentId,
+        this.lastRunConfig,
+        undefined,
+        resumeStream,
+      );
+    } catch {
+      // startRun already reported via onError; don't reject the switch.
+    }
+  }
+
   private assertNoPendingInterrupts(): void {
     if (!this.getPendingInterrupts()) return;
     throw new Error(
