@@ -4,27 +4,61 @@ import {
   peekResourceFiber,
 } from "../core/helpers/execution-context";
 import type { Cell, ChangelogRecord, ResourceFiber } from "../core/types";
-import { applyChangelogRecord, markCellDirty } from "../core/helpers/root";
+import {
+  addCommit,
+  applyChangelogRecord,
+  markReducerDirty,
+} from "../core/helpers/root";
+import { CommitPriority } from "../core/helpers/commit";
+import {
+  throwHookOrderChanged,
+  throwRenderedMoreHooks,
+} from "./utils/hookErrors";
 
 type Dispatch<A> = (action: A) => void;
 
 const dispatchOnFiber = (
   fiber: ResourceFiber<any, any>,
-  callback: () => ChangelogRecord | null,
+  record: ChangelogRecord,
+  eagerReducer: ((state: any, action: any) => any) | undefined,
 ): void => {
   if (fiber.isNeverMounted) {
     throw new Error("Resource updated before mount");
   }
 
-  fiber.root.dispatchUpdate(() => {
-    const record = callback();
-    if (record) {
+  let evaluated = false;
+  let hasWork = true;
+
+  fiber.root.dispatchUpdate(
+    () => {
+      if (evaluated) return hasWork;
+      evaluated = true;
+
+      if (
+        eagerReducer &&
+        fiber.root.changelog.length === 0 &&
+        !record.cell.isDirty &&
+        !record.hasEagerState
+      ) {
+        record.eagerState = eagerReducer(
+          record.cell.workInProgress,
+          record.action,
+        );
+        record.hasEagerState = true;
+
+        hasWork = !Object.is(record.cell.current, record.eagerState);
+      }
+
+      return hasWork;
+    },
+    () => {
+      evaluated = true;
+      hasWork = true;
       applyChangelogRecord(record);
       fiber.root.changelog.push(record);
       return true;
-    }
-    return false;
-  });
+    },
+  );
 };
 
 const createReducerCell = (
@@ -32,7 +66,7 @@ const createReducerCell = (
   reducer: (state: any, action: any) => any,
   initialArg: any,
   initFn: ((arg: any) => any) | undefined,
-  eagerDispatch: boolean,
+  eagerBailout: boolean,
 ): Cell & { type: "reducer" } => {
   const initialState = initFn ? initFn(initialArg) : initialArg;
 
@@ -42,10 +76,11 @@ const createReducerCell = (
 
   const cell: Cell & { type: "reducer" } = {
     type: "reducer",
-    queue: null,
-    renderQueue: null,
     workInProgress: initialState,
     current: initialState,
+    isDirty: false,
+    queue: null,
+    renderQueue: null,
     reducer,
     dispatch: (action) => {
       const currentFiber = peekResourceFiber();
@@ -67,53 +102,42 @@ const createReducerCell = (
           queued: false,
         };
 
-        dispatchOnFiber(fiber, () => {
-          if (
-            eagerDispatch &&
-            fiber.root.dirtyCells.size === 0 &&
-            !record.hasEagerState
-          ) {
-            record.eagerState = reducer(cell.workInProgress, action);
-            record.hasEagerState = true;
-
-            if (Object.is(cell.current, record.eagerState)) return null;
-          }
-
-          return record;
-        });
+        dispatchOnFiber(fiber, record, eagerBailout ? reducer : undefined);
       }
     },
   };
   return cell;
 };
 
-function useReducerImpl<S, A, I, R extends S>(
+export function useReducerImpl<S, A, I>(
   reducer: (state: S, action: A) => S,
-  getDerivedState: ((state: S) => R) | undefined,
   initialArg: S | I,
   initFn: ((arg: I) => S) | undefined,
-  eagerDispatch: boolean,
-): [R, Dispatch<A>] {
+  eagerBailout: boolean,
+): [S, Dispatch<A>] {
   const fiber = getCurrentResourceFiber();
   const index = fiber.currentIndex++;
 
   const existing = fiber.cells[index];
-  let cell: Cell & { type: "reducer" };
-  if (existing === undefined) {
+  const cell: Cell & { type: "reducer" } = (() => {
+    if (existing !== undefined) {
+      return existing.type === "reducer" ? existing : throwHookOrderChanged();
+    }
+
     if (!fiber.isFirstRender && index >= fiber.cells.length) {
-      throw new Error(
-        "Rendered more hooks than during the previous render. " +
-          "Hooks must be called in the exact same order in every render.",
-      );
+      throwRenderedMoreHooks();
     }
-    cell = createReducerCell(fiber, reducer, initialArg, initFn, eagerDispatch);
+
+    const cell = createReducerCell(
+      fiber,
+      reducer,
+      initialArg,
+      initFn,
+      eagerBailout,
+    );
     fiber.cells[index] = cell;
-  } else {
-    if (existing.type !== "reducer") {
-      throw new Error("Hook order changed between renders");
-    }
-    cell = existing;
-  }
+    return cell;
+  })();
 
   const queue = cell.queue;
   if (queue !== null) {
@@ -144,37 +168,26 @@ function useReducerImpl<S, A, I, R extends S>(
   }
   cell.reducer = reducer;
 
-  if (cell.renderQueue !== null || getDerivedState !== undefined) {
+  if (cell.renderQueue !== null) {
     let derived = cell.workInProgress;
-    if (cell.renderQueue !== null) {
-      for (const action of cell.renderQueue) {
-        derived = reducer(derived, action);
-      }
-
-      cell.renderQueue = null;
-      fiber.renderPendingCells?.delete(cell);
+    for (const action of cell.renderQueue) {
+      derived = reducer(derived, action);
     }
 
-    if (getDerivedState) {
-      let changed;
-      let passes = 0;
-      do {
-        if (++passes > 25) {
-          throw new Error(
-            "Too many derivations. getDerivedState must reach a fixpoint; " +
-              "tap limits the number of iterations to prevent an infinite loop.",
-          );
-        }
-        const result = getDerivedState(derived);
-        changed = !Object.is(result, derived);
-        derived = result;
-      } while (changed);
-    }
+    cell.renderQueue = null;
+    fiber.renderPendingCells?.delete(cell);
 
     if (!Object.is(derived, cell.workInProgress)) {
-      markCellDirty(fiber, cell);
+      markReducerDirty(fiber, cell);
       cell.workInProgress = derived;
     }
+  }
+
+  if (cell.isDirty) {
+    addCommit(fiber, CommitPriority.HookState, () => {
+      cell.current = cell.workInProgress;
+      cell.isDirty = false;
+    });
   }
 
   return [cell.workInProgress, cell.dispatch];
@@ -196,59 +209,8 @@ export function useReducer<S, A, I>(
 ): [S, Dispatch<A>] {
   return useReducerImpl(
     reducer,
-    undefined,
     initialArg as S,
     init as ((arg: S) => S) | undefined,
     false,
   );
-}
-
-/** @internal useState's entry point: eager dispatch, like React's basic state reducer. */
-export function useEagerReducer<S, A>(
-  reducer: (state: S, action: A) => S,
-  initialState: S,
-): [S, Dispatch<A>];
-export function useEagerReducer<S, A, I>(
-  reducer: (state: S, action: A) => S,
-  initialArg: I,
-  init: (arg: I) => S,
-): [S, Dispatch<A>];
-export function useEagerReducer<S, A, I>(
-  reducer: (state: S, action: A) => S,
-  initialArg: S | I,
-  init?: (arg: I) => S,
-): [S, Dispatch<A>] {
-  return useReducerImpl(
-    reducer,
-    undefined,
-    initialArg as S,
-    init as ((arg: S) => S) | undefined,
-    true,
-  );
-}
-
-/**
- * @internal Backs useMemo and useMemoCache: a reducer cell whose state is
- * recomputed during render via getDerivedState. Not part of the public API;
- * user-facing state adjustment during render uses render-phase updates
- * (setState during render), like React.
- */
-export function useReducerWithDerivedState<S, A, R extends S>(
-  reducer: (state: S, action: A) => S,
-  getDerivedState: (state: S) => R,
-  initialState: S,
-): [R, Dispatch<A>];
-export function useReducerWithDerivedState<S, A, I, R extends S>(
-  reducer: (state: S, action: A) => S,
-  getDerivedState: (state: S) => R,
-  initialArg: I,
-  init: (arg: I) => S,
-): [R, Dispatch<A>];
-export function useReducerWithDerivedState<S, A, I, R extends S>(
-  reducer: (state: S, action: A) => S,
-  getDerivedState: (state: S) => R,
-  initialArg: I,
-  init?: (arg: I) => S,
-): [R, Dispatch<A>] {
-  return useReducerImpl(reducer, getDerivedState, initialArg, init, true);
 }

@@ -1,6 +1,12 @@
+import { getCurrentResourceFiber } from "../core/helpers/execution-context";
+import { CommitPriority } from "../core/helpers/commit";
+import { addCommit } from "../core/helpers/root";
 import type { Cell } from "../core/types";
 import { depsShallowEqual } from "../hooks/utils/depsShallowEqual";
-import { useCell, registerRenderMountTask } from "../hooks/utils/useCell";
+import {
+  throwHookOrderChanged,
+  throwRenderedMoreHooks,
+} from "./utils/hookErrors";
 
 const newEffect = (): Cell & { type: "effect" } => ({
   type: "effect",
@@ -22,7 +28,24 @@ export function useEffect(
   effect: useEffect.EffectCallback,
   deps?: readonly unknown[],
 ): void {
-  const cell = useCell("effect", newEffect);
+  const fiber = getCurrentResourceFiber();
+  const index = fiber.currentIndex++;
+
+  const existing = fiber.cells[index];
+  const cell: Cell & { type: "effect" } =
+    existing === undefined
+      ? newEffect()
+      : existing.type === "effect"
+        ? existing
+        : throwHookOrderChanged();
+
+  if (existing === undefined) {
+    if (!fiber.isFirstRender && index >= fiber.cells.length) {
+      throwRenderedMoreHooks();
+    }
+
+    fiber.cells[index] = cell;
+  }
 
   if (deps && cell.deps && depsShallowEqual(cell.deps, deps)) return;
   if (cell.deps !== null && !!deps !== !!cell.deps)
@@ -30,29 +53,27 @@ export function useEffect(
       "useEffect called with and without dependencies across re-renders",
     );
 
-  registerRenderMountTask({
-    cleanup: () => {
-      try {
-        cell.cleanup?.();
-      } finally {
-        cell.cleanup = undefined;
-      }
-    },
-    setup: () => {
-      try {
-        const cleanup = effect();
+  addCommit(fiber, CommitPriority.PassiveEffectCleanup, () => {
+    try {
+      cell.cleanup?.();
+    } finally {
+      cell.cleanup = undefined;
+    }
+  });
+  addCommit(fiber, CommitPriority.PassiveEffectSetup, () => {
+    try {
+      const cleanup = effect();
 
-        if (cleanup !== undefined && typeof cleanup !== "function") {
-          throw new Error(
-            "An effect function must either return a cleanup function or nothing. " +
-              `Received: ${typeof cleanup}`,
-          );
-        }
-
-        cell.cleanup = cleanup;
-      } finally {
-        cell.deps = deps;
+      if (cleanup !== undefined && typeof cleanup !== "function") {
+        throw new Error(
+          "An effect function must either return a cleanup function or nothing. " +
+            `Received: ${typeof cleanup}`,
+        );
       }
-    },
+
+      cell.cleanup = cleanup;
+    } finally {
+      cell.deps = deps;
+    }
   });
 }

@@ -1,8 +1,13 @@
 import type { ResourceFiber, RenderResult, ResourceFiberRoot } from "./types";
-import { commitAllEffects, cleanupAllEffects } from "./helpers/commit";
+import {
+  commitAllCallbacks,
+  createCommitCallbacks,
+  cleanupAllEffects,
+} from "./helpers/commit";
 import { withResourceFiber } from "./helpers/execution-context";
 import { withReactDispatcher } from "./react-dispatcher";
 import { isDevelopment } from "./helpers/env";
+import { commitRoot } from "./helpers/root";
 
 export function createResourceFiber<R, A extends readonly unknown[]>(
   hook: (...args: A) => R,
@@ -16,6 +21,11 @@ export function createResourceFiber<R, A extends readonly unknown[]>(
     markDirty,
     devStrictMode: strictMode,
     cells: [],
+    memoCache: {
+      current: null,
+      workInProgress: null,
+      index: 0,
+    },
     renderPendingCells: null,
     currentIndex: 0,
     renderContext: undefined,
@@ -39,6 +49,8 @@ export function renderResourceFiber<R, A extends readonly unknown[]>(
   fiber: ResourceFiber<R, A>,
   args: Readonly<A>,
 ): RenderResult {
+  fiber.memoCache.workInProgress = null;
+
   // Discard render-phase actions left by a previous render
   if (fiber.renderPendingCells !== null) {
     for (const cell of fiber.renderPendingCells) cell.renderQueue = null;
@@ -56,9 +68,10 @@ export function renderResourceFiber<R, A extends readonly unknown[]>(
     }
 
     result = {
-      effectTasks: [],
+      commitCallbacks: createCommitCallbacks(),
       value: undefined as R | undefined,
     };
+    fiber.memoCache.index = 0;
 
     withResourceFiber(fiber, () => {
       fiber.renderContext = result;
@@ -78,14 +91,20 @@ export function commitResourceFiber<R, A extends readonly unknown[]>(
   result: RenderResult,
 ): void {
   fiber.isMounted = true;
+  commitRoot(fiber.root);
+
+  if (fiber.memoCache.workInProgress !== null) {
+    fiber.memoCache.current = fiber.memoCache.workInProgress;
+    fiber.memoCache.workInProgress = null;
+  }
 
   if (isDevelopment && fiber.isNeverMounted && fiber.devStrictMode === "root") {
     fiber.isNeverMounted = false;
 
-    commitAllEffects(result);
+    commitAllCallbacks(result.commitCallbacks);
     cleanupAllEffects(fiber);
   }
 
   fiber.isNeverMounted = false;
-  commitAllEffects(result);
+  commitAllCallbacks(result.commitCallbacks);
 }
