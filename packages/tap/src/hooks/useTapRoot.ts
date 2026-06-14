@@ -11,6 +11,7 @@ import {
   createResourceFiberRoot,
   setRootVersion,
 } from "../core/helpers/root";
+import { cloneCurrentTapContext, withTapContextRoot } from "../core/context";
 import { useEffect, useEffectEvent, useMemo, useRef } from "react";
 import { useDevStrictMode } from "./utils/useDevStrictMode";
 
@@ -59,12 +60,16 @@ export const useTapRoot = <R>(render: () => R): useTapRoot.Root<R> => {
     );
   }, [queue, scheduler, getDevStrictMode]);
 
+  const context = cloneCurrentTapContext();
+
   const drainedCount = fiber.root.version - fiber.root.committedVersion;
-  const render2 = renderResourceFiber(fiber, [render]);
+  const render2 = withTapContextRoot(context, () => {
+    return renderResourceFiber(fiber, [render]);
+  });
 
   const isMountedRef = useRef(false);
   const committedArgsRef = useRef([render] as const);
-  const valueRef = useRef<R>(render2.value);
+  const valueRef = useRef<R>(render2);
   const subscribers = useMemo(() => new Set<() => void>(), []);
 
   const publish = (output: R) => {
@@ -90,10 +95,14 @@ export const useTapRoot = <R>(render: () => R): useTapRoot.Root<R> => {
     );
 
     if (isDevelopment && fiber.devStrictMode) {
-      void renderResourceFiber(fiber, committedArgsRef.current);
+      void withTapContextRoot(fiber.root.context, () => {
+        return renderResourceFiber(fiber, committedArgsRef.current);
+      });
     }
 
-    const render = renderResourceFiber(fiber, committedArgsRef.current);
+    const render = withTapContextRoot(fiber.root.context, () => {
+      return renderResourceFiber(fiber, committedArgsRef.current);
+    });
 
     if (scheduler.isDirty)
       throw new Error("Scheduler is dirty, this should never happen");
@@ -102,10 +111,10 @@ export const useTapRoot = <R>(render: () => R): useTapRoot.Root<R> => {
     queue.length = 0;
 
     if (isMountedRef.current) {
-      commitResourceFiber(fiber, render);
+      commitResourceFiber(fiber);
     }
 
-    publish(render.value);
+    publish(render);
   });
 
   useEffect(() => {
@@ -120,9 +129,10 @@ export const useTapRoot = <R>(render: () => R): useTapRoot.Root<R> => {
     committedArgsRef.current = [render];
     commitRoot(fiber.root);
     queue.splice(0, drainedCount);
-    commitResourceFiber(fiber, render2);
+    fiber.root.context = context;
+    commitResourceFiber(fiber);
 
-    publish(render2.value);
+    publish(render2);
   });
 
   return useMemo(

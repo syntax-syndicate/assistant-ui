@@ -62,14 +62,18 @@ export type Cell = ReducerCell | MemoCell | EffectCell;
 export type CommitCallback = () => void;
 export type CommitCallbacks = Array<CommitCallback[] | undefined>;
 
-export interface RenderResult {
-  value: any;
-  readonly commitCallbacks: CommitCallbacks;
+export type ResourceContext = Map<object, ResourceContextValue>;
+export type ResourceContextDeps = Map<object, ResourceFiber<any> | null>;
+
+export interface ResourceContextValue {
+  value: unknown;
+  source: ResourceFiber<any> | null;
 }
 
-export interface ResourceFiberRoot {
+export interface TapRoot {
   version: number;
   committedVersion: number;
+  context: ResourceContext;
   readonly changelog: ChangelogRecord[];
   readonly dispatchUpdate: (
     evaluate: () => boolean,
@@ -80,12 +84,18 @@ export interface ResourceFiberRoot {
 }
 
 export interface ResourceFiber<R, A extends readonly unknown[] = any[]> {
-  readonly root: ResourceFiberRoot;
+  readonly root: TapRoot;
   readonly hook: (...args: A) => R;
   readonly markDirty: (() => void) | undefined;
   readonly devStrictMode: "root" | "child" | null;
 
   cells: Cell[];
+
+  wipContextDeps: ResourceContextDeps | null;
+  contextDeps: ResourceContextDeps | null;
+  commitCallbacks: CommitCallbacks | null;
+  wipCommitCallbacks: CommitCallbacks | null;
+
   currentIndex: number;
   memoCache: {
     current: unknown[][] | null;
@@ -94,8 +104,6 @@ export interface ResourceFiber<R, A extends readonly unknown[] = any[]> {
   };
 
   renderPendingCells: Set<ReducerCell> | null;
-
-  renderContext: RenderResult | undefined; // set during render
 
   isMounted: boolean;
   isFirstRender: boolean;

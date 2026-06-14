@@ -15,7 +15,10 @@ import {
   useResources,
   useTapRoot,
   flushTapSync,
+  useContextProvider,
 } from "../../index";
+import { use as useResourceContext } from "../../react-hooks/use";
+import { createContext } from "../../react-shim";
 
 describe("@assistant-ui/tap/react resource API", () => {
   afterEach(() => {
@@ -178,6 +181,29 @@ describe("@assistant-ui/tap/react resource API", () => {
       expect(values).toEqual([5, 0]);
       expect(renders).toEqual({ a: 2, b: 1 });
     });
+
+    it("re-renders a child with unchanged deps when its tap context changes", () => {
+      const TestContext = createContext("default");
+      let renders = 0;
+
+      const useItem = () => {
+        renders++;
+        return useResourceContext(TestContext);
+      };
+      const Item = resource(useItem);
+
+      const parent = createTestResource((value: string) =>
+        useContextProvider(TestContext, value, () =>
+          useResources([withKey("item", Item(), [])]),
+        ),
+      );
+
+      expect(renderTest(parent, "a")).toEqual(["a"]);
+      expect(parent.contextDeps).toBeNull();
+      expect(renderTest(parent, "b")).toEqual(["b"]);
+      expect(parent.contextDeps).toBeNull();
+      expect(renders).toBe(2);
+    });
   });
 
   describe("useTapRoot", () => {
@@ -193,6 +219,39 @@ describe("@assistant-ui/tap/react resource API", () => {
         }).getValue(),
       );
       expect(renderTest(parent)).toBe(7);
+    });
+
+    it("rerenders nested tap roots in their last committed tap context", () => {
+      const TestContext = createContext("default");
+
+      let increment: (() => void) | null = null;
+      const useRoot = () => {
+        const context = useResourceContext(TestContext) as string;
+        const [count, setCount] = useResourceState(0);
+        increment = () => setCount((c: number) => c + 1);
+        return `${context}:${count}`;
+      };
+
+      let store: useTapRoot.Root<string> | null = null;
+      const parent = createTestResource((context: string) =>
+        useContextProvider(TestContext, context, () => {
+          store = useTapRoot(function Root() {
+            return useRoot();
+          });
+          return store.getValue();
+        }),
+      );
+
+      expect(renderTest(parent, "a")).toBe("a:0");
+
+      flushTapSync(() => increment!());
+      expect(store!.getValue()).toBe("a:1");
+
+      renderTest(parent, "b");
+      expect(store!.getValue()).toBe("b:1");
+
+      flushTapSync(() => increment!());
+      expect(store!.getValue()).toBe("b:2");
     });
 
     // A root is push-based: host it in one place and observe it via getValue/
