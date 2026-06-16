@@ -141,6 +141,10 @@ export class AgUiThreadRuntimeCore {
         const messages = repo.messages.map((item) => item.message);
         this.applyExternalMessages(messages);
 
+        if (repo.state !== undefined) {
+          this.loadExternalState(repo.state);
+        }
+
         if (repo.unstable_resume) {
           const parentId = repo.headId ?? messages.at(-1)?.id ?? null;
           const resumeStream = this.history?.resume?.bind(this.history);
