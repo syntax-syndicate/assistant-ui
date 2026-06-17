@@ -43,6 +43,22 @@ export const createInProcessClient = (): DevToolsClient => {
     getSnapshot: () => snapshot,
     getServerSnapshot: () => EMPTY_SNAPSHOT,
     clearEvents: (apiId) => DevToolsHooks.clearEventLogs(apiId),
+    switchToThread: (apiId, threadId) => {
+      const entry = DevToolsHooks.getApis().get(apiId);
+      const threads = entry?.api.threads;
+      if (!threads || typeof threads !== "function") return;
+      try {
+        const methods = threads() as {
+          switchToThread?: (id: string) => void | Promise<void>;
+        };
+        return Promise.resolve(methods.switchToThread?.(threadId)).catch(
+          () => {},
+        );
+      } catch {
+        // The thread scope can throw when the runtime is not ready; ignore.
+        return;
+      }
+    },
   };
 };
 
