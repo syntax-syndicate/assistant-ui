@@ -125,6 +125,7 @@ export function TemplatesModal({
                     <Thumbnail
                       gradient={template.gradient}
                       src={template.screenshotUrl}
+                      previewUrl={template.previewUrl}
                       label={template.title}
                       className="aspect-video w-full"
                     />
