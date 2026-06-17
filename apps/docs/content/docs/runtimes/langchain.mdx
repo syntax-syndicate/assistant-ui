@@ -447,6 +447,75 @@ function InterruptPrompt() {
 </Tab>
 </PlatformTabs>
 
+## Tool calls
+
+`useLangChainToolCalls` exposes the root tool calls `useStream` assembles from the `tools` channel — each entry carries a `name`, `args`, and `id`. Use it to render pending or streamed tool calls and approval UIs. It defaults to an empty array, so you can `.map` without a guard.
+
+<PlatformTabs>
+<Tab value="React">
+
+```tsx
+import { useLangChainToolCalls } from "@assistant-ui/react-langchain";
+
+function PendingToolCalls() {
+  const toolCalls = useLangChainToolCalls();
+  return (
+    <ul>
+      {toolCalls.map((tc) => (
+        <li key={tc.id}>
+          {tc.name}: <code>{JSON.stringify(tc.args)}</code>
+        </li>
+      ))}
+    </ul>
+  );
+}
+```
+
+</Tab>
+<Tab value="React Native">
+
+```tsx
+import { useLangChainToolCalls } from "@assistant-ui/react-langchain";
+import { Text, View } from "react-native";
+
+function PendingToolCalls() {
+  const toolCalls = useLangChainToolCalls();
+  return (
+    <View>
+      {toolCalls.map((tc) => (
+        <Text key={tc.id}>
+          {tc.name}: {JSON.stringify(tc.args)}
+        </Text>
+      ))}
+    </View>
+  );
+}
+```
+
+</Tab>
+<Tab value="React Ink">
+
+```tsx
+import { useLangChainToolCalls } from "@assistant-ui/react-langchain";
+import { Box, Text } from "ink";
+
+function PendingToolCalls() {
+  const toolCalls = useLangChainToolCalls();
+  return (
+    <Box flexDirection="column">
+      {toolCalls.map((tc) => (
+        <Text key={tc.id}>
+          {tc.name}: {JSON.stringify(tc.args)}
+        </Text>
+      ))}
+    </Box>
+  );
+}
+```
+
+</Tab>
+</PlatformTabs>
+
 ## Errors
 
 `useLangChainError` exposes the last run or hydration error from upstream `useStream().error`. It is untyped (`unknown`), so narrow it at the use site before rendering.
@@ -517,6 +586,7 @@ Both packages connect assistant-ui to LangGraph backends. They are independent a
 | Send raw state update / resume command | Yes | Yes (`useLangChainSubmit`) |
 | Forward per-run `runConfig` | Yes (whole object → `config`) | Yes (`custom` → `config.configurable`) |
 | Read arbitrary custom state key | No | Yes (`useLangChainState<T>(key)`) |
+| Root tool-calls projection | Via message parts | Yes (`useLangChainToolCalls`) |
 | File content parts in messages | Yes | Yes |
 | Per-message metadata (`messages-tuple`) | Yes | Not exposed |
 | Generative UI messages (LangSmith) | Yes | Not exposed |
@@ -538,6 +608,7 @@ Both packages connect assistant-ui to LangGraph backends. They are independent a
 | `useLangGraphMessageMetadata` | _(not available)_ | Open an issue if you rely on this. |
 | `useLangGraphUIMessages` | _(not available)_ | Open an issue if you rely on this. |
 | _(none)_ | `useLangChainState<T>(key)` | New — reads any custom state key reactively. |
+| _(none)_ | `useLangChainToolCalls` | New — root tool calls assembled by `useStream`. |
 | _(none)_ | `useLangChainError()` | New — reads the last run/hydration error reactively. |
 
 ## Related
