@@ -19,5 +19,6 @@ export type {
   LangChainBaseMessage,
   LangChainContentBlock,
   LangChainToolCall,
+  UIMessage,
   UseStreamRuntimeOptions,
 } from "./types";

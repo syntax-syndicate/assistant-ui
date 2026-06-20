@@ -1,9 +1,24 @@
 "use client";
 
 import type { useExternalMessageConverter } from "@assistant-ui/core/react";
-import type { AppendMessage } from "@assistant-ui/core";
+import type { AppendMessage, DataMessagePart } from "@assistant-ui/core";
 import type { ReadonlyJSONObject } from "assistant-stream/utils";
-import type { LangChainBaseMessage, LangChainContentBlock } from "./types";
+import type {
+  LangChainBaseMessage,
+  LangChainContentBlock,
+  UIMessage,
+} from "./types";
+
+type LangChainMessageConverterMetadata =
+  useExternalMessageConverter.Metadata & {
+    uiMessagesByParent?: Map<string, UIMessage[]>;
+  };
+
+const uiMessageToDataPart = (ui: UIMessage): DataMessagePart => ({
+  type: "data",
+  name: ui.name,
+  data: ui.props,
+});
 
 export const getMessageType = (message: LangChainBaseMessage): string => {
   if (typeof message._getType === "function") return message._getType();
@@ -75,7 +90,7 @@ const getStringContent = (content: unknown): string => {
 
 export const convertLangChainBaseMessage: useExternalMessageConverter.Callback<
   LangChainBaseMessage
-> = (message) => {
+> = (message, metadata: LangChainMessageConverterMetadata = {}) => {
   const type = getMessageType(message);
 
   switch (type) {
@@ -112,10 +127,21 @@ export const convertLangChainBaseMessage: useExternalMessageConverter.Callback<
       const assistantStatus =
         typeof message.status === "object" ? message.status : undefined;
 
+      const uiDataParts =
+        (message.id
+          ? metadata.uiMessagesByParent
+              ?.get(message.id)
+              ?.map(uiMessageToDataPart)
+          : undefined) ?? [];
+
       return {
         role: "assistant",
         id: message.id,
-        content: [...contentToParts(message.content), ...toolCallParts],
+        content: [
+          ...contentToParts(message.content),
+          ...toolCallParts,
+          ...uiDataParts,
+        ],
         metadata: {
           custom: getCustomMetadata(message.additional_kwargs),
         },
