@@ -11,7 +11,7 @@ import {
   useRemoteThreadListRuntime,
 } from "@assistant-ui/core/react";
 import { useAuiState } from "@assistant-ui/store";
-import { useStream } from "@langchain/react";
+import { STREAM_CONTROLLER, useStream } from "@langchain/react";
 import type {
   LangChainBaseMessage,
   LangChainToolCall,
@@ -23,6 +23,7 @@ import {
   getMessageType,
 } from "./convertMessages";
 import { langChainExtras } from "./runtimeExtras";
+import { resolveForkCheckpointId } from "./resolveForkCheckpointId";
 
 export const runConfigToSubmitOptions = (
   runConfig: AppendMessage["runConfig"],
@@ -159,6 +160,44 @@ const useStreamThreadRuntime = (
             status: isError ? "error" : "success",
           },
         ],
+      });
+    },
+    onReload: async (parentId, config) => {
+      const threadId = externalId;
+      if (!threadId || parentId == null) return;
+      const s = streamRef.current;
+      const messages = s.messages as readonly LangChainBaseMessage[];
+
+      // Hydration seeds every message with the head's parent checkpoint, so only
+      // the head's recorded fork checkpoint is reliable; older turns reverse-map.
+      const sourceId = config.sourceId;
+      const lastMessage = messages[messages.length - 1];
+      let checkpointId: string | null =
+        sourceId != null && lastMessage?.id === sourceId
+          ? (s[STREAM_CONTROLLER]?.messageMetadataStore
+              ?.getSnapshot?.()
+              ?.get(sourceId)?.parentCheckpointId ?? null)
+          : null;
+
+      if (!checkpointId) {
+        const parentIndex = messages.findIndex((m) => m.id === parentId);
+        if (parentIndex === -1) return;
+        try {
+          checkpointId = await resolveForkCheckpointId(
+            s.client,
+            threadId,
+            messages.slice(0, parentIndex + 1),
+            messagesKey,
+          );
+        } catch {
+          return;
+        }
+      }
+
+      if (!checkpointId) return;
+      await s.submit(null, {
+        forkFrom: checkpointId,
+        ...runConfigToSubmitOptions(config.runConfig),
       });
     },
     onCancel:
