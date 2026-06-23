@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getLLMText } from "@/lib/get-llm-text";
-import { examples } from "@/lib/source";
+import { getTapDocsPage, tapDocs } from "@/lib/source";
 import { notFound } from "next/navigation";
 
 export const revalidate = false;
@@ -10,7 +10,8 @@ export async function GET(
   { params }: { params: Promise<{ slug?: string[] }> },
 ) {
   const { slug } = await params;
-  const page = examples.getPage(slug);
+  // The Tap index MDX redirects; markdown should return content directly.
+  const page = getTapDocsPage(slug);
   if (!page) notFound();
 
   return new NextResponse(await getLLMText(page), {
@@ -23,7 +24,7 @@ export async function GET(
 }
 
 export function generateStaticParams() {
-  return examples.getPages().map((page) => ({
+  return tapDocs.getPages().map((page) => ({
     slug: page.slugs,
   }));
 }
