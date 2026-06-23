@@ -69,6 +69,15 @@ export type UIMessage<
 };
 
 /**
+ * Emitted on the live `custom` channel by the graph's `remove_ui_message`
+ * helper to drop a pushed `UIMessage` by id.
+ */
+export type RemoveUIMessage = {
+  type: "remove-ui";
+  id: string;
+};
+
+/**
  * Minimal duck-typed interface for BaseMessage class instances returned by
  * `useStream`. Used internally by the message converter.
  *
