@@ -297,6 +297,7 @@ export type {
   ExternalStoreMessageConverter,
   ExternalStoreThreadListAdapter,
   ExternalStoreThreadData,
+  ExternalStoreBranchChange,
 } from "./runtimes/external-store/external-store-adapter";
 export type { ExternalStoreSharedOptions } from "./runtimes/external-store/external-store-shared-options";
 export { pickExternalStoreSharedOptions } from "./runtimes/external-store/external-store-shared-options";
