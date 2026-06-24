@@ -112,9 +112,124 @@ export function isGenerativeModule(code: string): boolean {
       break;
     }
   }
+
+  const quote = code[i];
+  if (quote !== '"' && quote !== "'") return false;
+
+  const directiveStart = i + 1;
+  if (!code.startsWith(DIRECTIVE, directiveStart)) return false;
+
+  const directiveEnd = directiveStart + DIRECTIVE.length;
+  if (code[directiveEnd] !== quote) return false;
+
+  return hasDirectiveTerminator(code, directiveEnd + 1);
+}
+
+function hasDirectiveTerminator(code: string, start: number): boolean {
+  let i = start;
+  let sawLineTerminator = false;
+  for (;;) {
+    if (i >= code.length) return true;
+
+    const char = code.charCodeAt(i);
+    if (isSemicolon(char)) return true;
+    if (isLineTerminator(char)) {
+      sawLineTerminator = true;
+      i++;
+      continue;
+    }
+
+    if (code.startsWith("//", i)) {
+      const lineEnd = nextLineTerminatorIndex(code, i + 2);
+      if (lineEnd === -1) return true;
+      sawLineTerminator = true;
+      i = lineEnd + 1;
+      continue;
+    }
+
+    if (code.startsWith("/*", i)) {
+      const end = code.indexOf("*/", i + 2);
+      if (end === -1) return false;
+      sawLineTerminator ||= containsLineTerminator(code, i + 2, end);
+      i = end + 2;
+      continue;
+    }
+
+    if (/\s/.test(code[i]!)) {
+      i++;
+      continue;
+    }
+
+    return sawLineTerminator && !startsExpressionContinuation(code, i);
+  }
+}
+
+function nextLineTerminatorIndex(code: string, start: number): number {
+  for (let i = start; i < code.length; i++) {
+    if (isLineTerminator(code.charCodeAt(i))) return i;
+  }
+  return -1;
+}
+
+function containsLineTerminator(
+  code: string,
+  start: number,
+  end: number,
+): boolean {
+  for (let i = start; i < end; i++) {
+    if (isLineTerminator(code.charCodeAt(i))) return true;
+  }
+  return false;
+}
+
+function startsExpressionContinuation(code: string, start: number): boolean {
+  switch (code[start]) {
+    case ".":
+    case "+":
+    case "-":
+    case "*":
+    case "/":
+    case "%":
+    case "<":
+    case ">":
+    case "=":
+    case "!":
+    case "&":
+    case "|":
+    case "^":
+    case "?":
+    case ":":
+    case ",":
+    case "[":
+    case "(":
+    case "`":
+      return true;
+  }
+
   return (
-    code.startsWith(`"${DIRECTIVE}"`, i) || code.startsWith(`'${DIRECTIVE}'`, i)
+    startsKeywordContinuation(code, start, "as") ||
+    startsKeywordContinuation(code, start, "in") ||
+    startsKeywordContinuation(code, start, "instanceof") ||
+    startsKeywordContinuation(code, start, "satisfies")
   );
+}
+
+function startsKeywordContinuation(
+  code: string,
+  start: number,
+  keyword: string,
+): boolean {
+  if (!code.startsWith(keyword, start)) return false;
+  const next = code[start + keyword.length];
+  return next === undefined || !/[\p{ID_Continue}$]/u.test(next);
+}
+
+function isSemicolon(char: number): boolean {
+  return char === 59;
+}
+
+function isLineTerminator(char: number): boolean {
+  return char === 10 || char === 13 || char === 0x2028 || char === 0x2029;
 }
 
 /**
