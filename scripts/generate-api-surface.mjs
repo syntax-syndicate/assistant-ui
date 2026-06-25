@@ -281,39 +281,11 @@ const KNOWN_DECLARATION_FIXUPS = [
   },
 ];
 
-function normalizeThreadComposerAttachmentUnions(content) {
-  // The declaration bundler emits this expanded discriminated union in OS-dependent order.
-  const marker = "declare const useThreadComposerAttachment: {";
-  const start = content.indexOf(marker);
-  if (start === -1) return content;
-  const end = content.indexOf("\n};", start);
-  if (end === -1) return content;
-
-  const section = content.slice(start, end);
-  const normalizedSection = section.replace(
-    /(\(\{\n\s+id: string;\n\s+type: "image" \| "document" \| "file" \| \(string & \{\}\);\n\s+name: string;\n\s+contentType\?: string \| undefined;\n\s+file\?: File;\n\s+content\?: ThreadUserMessagePart\[\];\n\s+\} & \{\n\s+status: PendingAttachmentStatus;\n\s+file: File;\n\s+\} & \{\n\s+readonly source: "thread-composer";\n\s+\} & \{\n\s+source: "thread-composer";\n\s+\}\)) \| (\(\{\n\s+id: string;\n\s+type: "image" \| "document" \| "file" \| \(string & \{\}\);\n\s+name: string;\n\s+contentType\?: string \| undefined;\n\s+file\?: File;\n\s+content\?: ThreadUserMessagePart\[\];\n\s+\} & \{\n\s+status: CompleteAttachmentStatus;\n\s+content: ThreadUserMessagePart\[\];\n\s+\} & \{\n\s+readonly source: "thread-composer";\n\s+\} & \{\n\s+source: "thread-composer";\n\s+\}\))/g,
-    "$2 | $1",
-  );
-  if (
-    normalizedSection === section &&
-    !/status: CompleteAttachmentStatus;\n\s+content: ThreadUserMessagePart\[\];[\s\S]*?\}\) \| \(\{[\s\S]*?status: PendingAttachmentStatus;\n\s+file: File;/.test(
-      section,
-    )
-  ) {
-    throw new Error(
-      "normalizeThreadComposerAttachmentUnions matched no known union pairs; update the pattern.",
-    );
-  }
-
-  return `${content.slice(0, start)}${normalizedSection}${content.slice(end)}`;
-}
-
 function applyKnownDeclarationFixups(content) {
-  const fixed = KNOWN_DECLARATION_FIXUPS.reduce(
+  return KNOWN_DECLARATION_FIXUPS.reduce(
     (output, fixup) => output.replace(fixup.pattern, fixup.replacement),
     content,
   );
-  return normalizeThreadComposerAttachmentUnions(fixed);
 }
 
 function typeMemberName(member, sourceFile) {
@@ -325,6 +297,138 @@ function typeMemberName(member, sourceFile) {
     return member.name.text;
   }
   return member.name.getText(sourceFile);
+}
+
+function unwrapParenthesizedType(node) {
+  let current = node;
+  while (ts.isParenthesizedTypeNode(current)) current = current.type;
+  return current;
+}
+
+function literalPropertyValue(member) {
+  if (!member.type) return undefined;
+  const type = unwrapParenthesizedType(member.type);
+  if (
+    ts.isLiteralTypeNode(type) &&
+    (ts.isStringLiteral(type.literal) || ts.isNumericLiteral(type.literal))
+  ) {
+    return type.literal.text;
+  }
+  if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)) {
+    return type.typeName.text;
+  }
+  return undefined;
+}
+
+function collectTypeLiteralProperties(typeLiteral, sourceFile) {
+  const properties = new Map();
+  for (const member of typeLiteral.members) {
+    if (!ts.isPropertySignature(member)) continue;
+    const name = typeMemberName(member, sourceFile);
+    if (!name) continue;
+    properties.set(name, {
+      optional: Boolean(member.questionToken),
+      value: literalPropertyValue(member),
+    });
+  }
+  return properties;
+}
+
+function collectIntersectionTypeProperties(type, sourceFile) {
+  const unwrapped = unwrapParenthesizedType(type);
+  if (!ts.isIntersectionTypeNode(unwrapped)) return undefined;
+
+  const properties = new Map();
+  for (const part of unwrapped.types) {
+    const partType = unwrapParenthesizedType(part);
+    if (!ts.isTypeLiteralNode(partType)) continue;
+    for (const [name, value] of collectTypeLiteralProperties(
+      partType,
+      sourceFile,
+    )) {
+      properties.set(name, value);
+    }
+  }
+  return properties;
+}
+
+function attachmentUnionMemberStatus(properties) {
+  const source = properties.get("source")?.value;
+  if (source !== "thread-composer" && source !== "edit-composer") {
+    return undefined;
+  }
+
+  const status = properties.get("status")?.value;
+  if (
+    status !== "CompleteAttachmentStatus" &&
+    status !== "PendingAttachmentStatus"
+  ) {
+    return undefined;
+  }
+
+  return status;
+}
+
+function attachmentUnionMemberInfo(type, sourceFile) {
+  const properties = collectIntersectionTypeProperties(type, sourceFile);
+  if (!properties) return { recognized: false, key: undefined };
+
+  const status = attachmentUnionMemberStatus(properties);
+  if (!status) return { recognized: false, key: undefined };
+
+  const statusRank = status === "CompleteAttachmentStatus" ? 0 : 1;
+
+  const hasMatchingPayload =
+    (statusRank === 0 &&
+      properties.has("content") &&
+      !properties.get("content").optional) ||
+    (statusRank === 1 &&
+      properties.has("file") &&
+      !properties.get("file").optional);
+  if (!hasMatchingPayload) return { recognized: true, key: undefined };
+
+  return {
+    recognized: true,
+    key: `${properties.get("source").value}:${statusRank}`,
+  };
+}
+
+function normalizeAttachmentUnionType(node, sourceFile, factory) {
+  const keyedTypes = node.types.map((type, index) => {
+    const info = attachmentUnionMemberInfo(type, sourceFile);
+    return {
+      index,
+      ...info,
+      type,
+    };
+  });
+  const recognizedTypes = keyedTypes.filter(({ recognized }) => recognized);
+  if (recognizedTypes.length < 2) return node;
+
+  if (recognizedTypes.some(({ key }) => key === undefined)) {
+    throw new Error(
+      "Found a composer attachment union with an unsupported shape; update normalizeAttachmentUnionType.",
+    );
+  }
+
+  const sortedRecognizedTypes = recognizedTypes.toSorted(
+    (a, b) => compareStrings(a.key, b.key) || a.index - b.index,
+  );
+  if (
+    recognizedTypes.every(
+      ({ index }, sortedIndex) =>
+        index === sortedRecognizedTypes[sortedIndex].index,
+    )
+  ) {
+    return node;
+  }
+
+  let sortedIndex = 0;
+  const types = keyedTypes.map(({ recognized, type }) =>
+    recognized ? sortedRecognizedTypes[sortedIndex++].type : type,
+  );
+
+  return factory.updateUnionTypeNode(node, types);
 }
 
 function normalizeBundledDeclaration(content) {
@@ -345,6 +449,13 @@ function normalizeBundledDeclaration(content) {
     (context) => {
       let bindingParameterIndex = 0;
       const visit = (node) => {
+        if (ts.isUnionTypeNode(node)) {
+          return normalizeAttachmentUnionType(
+            ts.visitEachChild(node, visit, context),
+            sourceFile,
+            context.factory,
+          );
+        }
         if (
           ts.isVariableDeclaration(node) &&
           ts.isIdentifier(node.name) &&
