@@ -5,9 +5,13 @@ on:
     branches: [main]
     paths:
       - "packages/**"
+      - "api-surface/**"
       - "apps/**"
       - "examples/**"
       - "templates/**"
+      - "scripts/generate-api-surface.mjs"
+      - "scripts/check-api-surface.mjs"
+      - "scripts/lib/script-options.mjs"
       - "scripts/sync-templates.sh"
       - "turbo.json"
       - "package.json"
@@ -17,9 +21,13 @@ on:
     branches: [main]
     paths:
       - "packages/**"
+      - "api-surface/**"
       - "apps/**"
       - "examples/**"
       - "templates/**"
+      - "scripts/generate-api-surface.mjs"
+      - "scripts/check-api-surface.mjs"
+      - "scripts/lib/script-options.mjs"
       - "scripts/sync-templates.sh"
       - "turbo.json"
       - "package.json"
@@ -114,6 +122,16 @@ jobs:
           else
             # Push to main: Build packages changed in last commit
             pnpm turbo build --filter="...[HEAD^1]"
+          fi
+
+      - name: Check API surface
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # PR: Check API surface for packages changed compared to base branch
+            pnpm run api-surface:check -- --skip-build --filter="...[origin/${{ github.base_ref }}]"
+          else
+            # Push to main: Check API surface for packages changed in last commit
+            pnpm run api-surface:check -- --skip-build --filter="...[HEAD^1]"
           fi
 
   test:
