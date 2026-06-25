@@ -1812,6 +1812,8 @@ type OpenCodeThreadControllerLike = {
   load(force?: boolean): Promise<void>;
   refresh(): Promise<void>;
   sendMessage(message: AppendMessage, options?: OpenCodeUserMessageOptions): Promise<void>;
+  stageMessage(message: AppendMessage, options?: OpenCodeUserMessageOptions): Promise<void>;
+  sendStagedMessage(parentId: string, options?: OpenCodeUserMessageOptions): Promise<boolean>;
   cancel(): Promise<void>;
   revert(messageId: string): Promise<void>;
   unrevert(): Promise<void>;
@@ -1862,6 +1864,7 @@ declare class OpenCodeThreadController implements OpenCodeThreadControllerLike {
   private unsubscribeFromEvents;
   private loadPromise;
   private reconnectSyncToken;
+  private readonly stagedMessages;
   constructor(client: OpencodeClient, getEventSource: OpenCodeEventSourceProvider, sessionId: string);
   private ensureEventSubscription;
   private handleStreamReconnect;
@@ -1870,7 +1873,11 @@ declare class OpenCodeThreadController implements OpenCodeThreadControllerLike {
   subscribe: (listener: () => void) => () => void;
   load(force?: boolean): Promise<void>;
   refresh(): Promise<void>;
+  private createPendingMessage;
+  private promptMessage;
   sendMessage(message: AppendMessage, options?: OpenCodeUserMessageOptions): Promise<void>;
+  stageMessage(message: AppendMessage, options?: OpenCodeUserMessageOptions): Promise<void>;
+  sendStagedMessage(parentId: string, options?: OpenCodeUserMessageOptions): Promise<boolean>;
   cancel(): Promise<void>;
   revert(messageId: string): Promise<void>;
   unrevert(): Promise<void>;
