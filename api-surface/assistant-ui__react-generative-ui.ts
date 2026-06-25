@@ -4,6 +4,60 @@ import { ZodType } from "zod";
 
 import { StandardSchemaV1 } from "@standard-schema/spec";
 
+declare namespace entry_ir_exports {
+  export { Action, LegacyComponentNode, NormalizedUIElement, NormalizedUINode, UIChildren, UIElement, UINode, UISpec, normalizeSpec, normalizeUINode };
+}
+
+interface Action {
+  readonly type: string;
+  readonly [payload: string]: unknown;
+}
+
+type UINode = string | number | UIElement | LegacyComponentNode;
+
+type UIChildren = UINode | readonly UINode[];
+
+interface UIElement {
+  readonly $type: string;
+  readonly $key?: string | number;
+  readonly children?: UIChildren;
+  readonly $action?: Action;
+  readonly [prop: string]: unknown;
+}
+
+interface LegacyComponentNode {
+  readonly component: string;
+  readonly props?: Record<string, unknown>;
+  readonly children?: UIChildren;
+  readonly key?: string;
+}
+
+type UISpec = UINode | readonly UINode[];
+
+interface NormalizedUIElement {
+  readonly type: string;
+  readonly props: Readonly<Record<string, unknown>>;
+  readonly children?: NormalizedUINode | undefined;
+  readonly key?: string | number | undefined;
+  readonly action?: Action | undefined;
+}
+
+type NormalizedUINode = string | number | readonly NormalizedUINode[] | NormalizedUIElement | null;
+
+declare function normalizeUINode(node: unknown, partialPath?: readonly string[] | undefined, depth?: number): NormalizedUINode;
+
+declare function normalizeSpec(spec: UISpec): {
+  readonly root: NormalizedUINode | readonly NormalizedUINode[];
+};
+
+type GenerativeUIElement = NormalizedUIElement;
+
+type GenerativeUIProps = NormalizedUIElement["props"];
+
+type GenerativeUINode$1 = GenerativeUIElement | string | number | boolean | null | undefined | GenerativeUINode$1[];
+
+type GenerativeUIAction = Action;
+
 type GenerativeUIStatus = "streaming" | "done";
 
 type GenerativeUIRenderContext = {
@@ -36,17 +90,6 @@ type GenerativeUIComponent<P = any> = {
 };
 
 type GenerativeUILibrary = Record<string, GenerativeUIComponent>;
-
-type GenerativeUIElement = {
-  type: string;
-  props: GenerativeUIProps;
-};
-
-type GenerativeUIProps = {
-  children?: GenerativeUINode$1;
-} & Record<string, unknown>;
-
-type GenerativeUINode$1 = GenerativeUIElement | string | number | boolean | null | undefined | GenerativeUINode$1[];
 
 type JSONSchema7TypeName$1 = "string" | "number" | "integer" | "boolean" | "object" | "array" | "null";
 
@@ -916,7 +959,7 @@ declare function generativeUIToJSX(node: unknown): string;
 declare function renderGenerativeUI(node: unknown, library: GenerativeUILibrary, context?: GenerativeUIRenderContext): ReactNode;
 
 declare namespace entry_root_default_exports {
-  export { GenerativeUIComponent, GenerativeUIElement, GenerativeUILibrary, GenerativeUINode$1 as GenerativeUINode, GenerativeUIProps, GenerativeUIRenderContext, GenerativeUIStatus, JSONGenerativeUI$1 as JSONGenerativeUI, JSONGenerativeUIOptions, PresentTool, PresentToolOptions, PromptUserTool, TYPE_KEY, buildPresentParameters, defineGenerativeComponents, generativeUIToJSX, renderGenerativeUI };
+  export { Action, GenerativeUIAction, GenerativeUIComponent, GenerativeUIElement, GenerativeUILibrary, GenerativeUINode$1 as GenerativeUINode, GenerativeUIProps, GenerativeUIRenderContext, GenerativeUIStatus, JSONGenerativeUI$1 as JSONGenerativeUI, JSONGenerativeUIOptions, LegacyComponentNode, NormalizedUIElement, NormalizedUINode, PresentTool, PresentToolOptions, PromptUserTool, TYPE_KEY, UIChildren, UIElement, UINode, UISpec, buildPresentParameters, defineGenerativeComponents, generativeUIToJSX, normalizeSpec, normalizeUINode, renderGenerativeUI };
 }
 
 declare class JSONGenerativeUI {
@@ -927,7 +970,7 @@ declare class JSONGenerativeUI {
 }
 
 declare namespace entry_root_react_server_exports {
-  export { GenerativeUIComponent, GenerativeUIElement, GenerativeUILibrary, GenerativeUINode$1 as GenerativeUINode, GenerativeUIProps, GenerativeUIRenderContext, GenerativeUIStatus, JSONGenerativeUI, JSONGenerativeUIOptions, PresentTool, PresentToolOptions, PromptUserTool, TYPE_KEY, buildPresentParameters, defineGenerativeComponents, generativeUIToJSX, renderGenerativeUI };
+  export { Action, GenerativeUIAction, GenerativeUIComponent, GenerativeUIElement, GenerativeUILibrary, GenerativeUINode$1 as GenerativeUINode, GenerativeUIProps, GenerativeUIRenderContext, GenerativeUIStatus, JSONGenerativeUI, JSONGenerativeUIOptions, LegacyComponentNode, NormalizedUIElement, NormalizedUINode, PresentTool, PresentToolOptions, PromptUserTool, TYPE_KEY, UIChildren, UIElement, UINode, UISpec, buildPresentParameters, defineGenerativeComponents, generativeUIToJSX, normalizeSpec, normalizeUINode, renderGenerativeUI };
 }
 
-export { entry_root_default_exports as entry_root_default, entry_root_react_server_exports as entry_root_react_server };
+export { entry_ir_exports as entry_ir, entry_root_default_exports as entry_root_default, entry_root_react_server_exports as entry_root_react_server };
