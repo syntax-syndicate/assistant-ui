@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Action } from "../ir";
 import { BUTTON_STYLES } from "../ir";
-import type { GenerativeUILibrary } from "../types";
+import type { GenerativeUIDispatch, GenerativeUILibrary } from "../types";
 
 const optionSchema = z.object({
   label: z.string(),
@@ -10,6 +10,25 @@ const optionSchema = z.object({
 
 const actionAttr = (a: Action | undefined): string | undefined =>
   a ? JSON.stringify(a) : undefined;
+
+/** Fires `$action` through `$dispatch` when both are present, merging a runtime
+ * value into the payload under the reserved `$input` key (not `value`) so the
+ * user's input never clobbers a model-supplied `value` field. No-op when no
+ * registry is wired. The returned promise from an async handler is caught and
+ * re-thrown on a microtask so rejections surface rather than going unhandled. */
+const fire = (
+  $action: Action | undefined,
+  $dispatch: GenerativeUIDispatch | undefined,
+  input?: unknown,
+) => {
+  if (!$action || !$dispatch) return;
+  const payload = input === undefined ? $action : { ...$action, $input: input };
+  void Promise.resolve($dispatch(payload)).catch((error) => {
+    queueMicrotask(() => {
+      throw error;
+    });
+  });
+};
 
 export const interactiveVocabulary = {
   Button: {
@@ -23,12 +42,13 @@ export const interactiveVocabulary = {
         .optional()
         .describe("Whether the button spans the full width."),
     }),
-    render: ({ label, buttonStyle, block, $action, children }) => (
+    render: ({ label, buttonStyle, block, $action, $dispatch, children }) => (
       <button
         data-aui="button"
         data-aui-style={buttonStyle}
         data-aui-block={block || undefined}
         data-aui-action={actionAttr($action)}
+        onClick={() => fire($action, $dispatch)}
       >
         {label}
         {children}
@@ -49,12 +69,13 @@ export const interactiveVocabulary = {
         .optional()
         .describe("Accessible label for the control."),
     }),
-    render: ({ options, placeholder, label, $action, children }) => (
+    render: ({ options, placeholder, label, $action, $dispatch, children }) => (
       <select
         data-aui="select"
         data-aui-action={actionAttr($action)}
         aria-label={label}
         defaultValue=""
+        onChange={(e) => fire($action, $dispatch, e.currentTarget.value)}
       >
         {placeholder ? (
           <option value="" disabled>
@@ -84,14 +105,23 @@ export const interactiveVocabulary = {
         .optional()
         .describe("Accessible label for the control."),
     }),
-    render: ({ placeholder, multiline, label, $action }) =>
-      multiline ? (
+    render: ({ placeholder, multiline, label, $action, $dispatch }) => {
+      const submit = (v: string) => fire($action, $dispatch, v);
+      return multiline ? (
         <textarea
           data-aui="input"
           data-aui-multiline
           data-aui-action={actionAttr($action)}
           aria-label={label}
           placeholder={placeholder}
+          onKeyDown={(e) => {
+            if (
+              e.key === "Enter" &&
+              (e.ctrlKey || e.metaKey) &&
+              !e.nativeEvent.isComposing
+            )
+              submit(e.currentTarget.value);
+          }}
         />
       ) : (
         <input
@@ -99,8 +129,13 @@ export const interactiveVocabulary = {
           data-aui-action={actionAttr($action)}
           aria-label={label}
           placeholder={placeholder}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.nativeEvent.isComposing)
+              submit(e.currentTarget.value);
+          }}
         />
-      ),
+      );
+    },
   },
   DatePicker: {
     description:
@@ -114,7 +149,7 @@ export const interactiveVocabulary = {
         .optional()
         .describe("Accessible label for the control."),
     }),
-    render: ({ value, min, max, label, $action }) => (
+    render: ({ value, min, max, label, $action, $dispatch }) => (
       <input
         type="date"
         data-aui="datepicker"
@@ -123,6 +158,7 @@ export const interactiveVocabulary = {
         defaultValue={value}
         min={min}
         max={max}
+        onChange={(e) => fire($action, $dispatch, e.currentTarget.value)}
       />
     ),
   },

@@ -81,6 +81,9 @@ function renderElement(
     ...element.props,
     $status: context.status,
   };
+  if (context.dispatch !== undefined) {
+    props["$dispatch"] = context.dispatch;
+  }
   if (element.action !== undefined) {
     props["$action"] = element.action;
   }
